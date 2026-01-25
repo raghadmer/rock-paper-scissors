@@ -272,7 +272,16 @@ jobs:
           sudo apt-get install -y jq
           HASH="${IMAGE_DIGEST#sha256:}"
           echo "🔍 Searching Rekor for $HASH"
-          docker run --rm ghcr.io/sigstore/rekor-cli:latest search --sha "$HASH" --format json > rekor-output.json
+          # The ghcr.io/sigstore/rekor-cli:latest container may not exist; use the official CLI binary.
+          REKOR_VERSION=$(curl -sSfL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/sigstore/rekor/releases/latest | jq -r .tag_name)
+          curl -sSfL \
+            "https://github.com/sigstore/rekor/releases/download/${REKOR_VERSION}/rekor-cli-linux-amd64" \
+            -o rekor-cli
+          sudo install -m 0755 rekor-cli /usr/local/bin/rekor-cli
+          rekor-cli version
+          rekor-cli search --sha "$HASH" --format json > rekor-output.json
           cat rekor-output.json | jq
           ENTRY_COUNT=$(jq length rekor-output.json)
           if [ "$ENTRY_COUNT" -lt 6 ]; then
