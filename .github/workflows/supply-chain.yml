@@ -9,6 +9,8 @@ permissions:
   id-token: write
   contents: read
   packages: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -149,6 +151,28 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      - name: Attest SLSA build provenance (registry)
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Attest SBOM (registry)
+        uses: actions/attest-sbom@v3
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+
   sign_and_verify:
     name: Sign & Verify
     runs-on: ubuntu-latest
@@ -156,6 +180,7 @@ jobs:
     env:
       IMAGE_REF: ${{ needs.build_and_push.outputs.image_ref }}
       IMAGE_DIGEST: ${{ needs.build_and_push.outputs.digest }}
+      IMAGE_NAME_NO_TAG: ${{ needs.build_and_push.outputs.image }}
     steps:
       - name: Login to GHCR (for cosign)
         uses: docker/login-action@v3
@@ -205,11 +230,9 @@ jobs:
             --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
             "${IMAGE_REF}"
 
-      - name: Verify attestations (all)
+      - name: Verify vulnerability attestations (cosign)
         run: |
           for TYPE in \
-            "https://slsa.dev/provenance/v0.2" \
-            "https://spdx.dev/Document" \
             "https://cosign.dev/attestation/vuln/source" \
             "https://cosign.dev/attestation/vuln/dockerfile" \
             "https://cosign.dev/attestation/vuln/iac" \
@@ -220,7 +243,22 @@ jobs:
               --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
               "${IMAGE_REF}" > /dev/null
           done
-          echo "✅ All attestations verified."
+          echo "✅ All vulnerability attestations verified."
+
+      - name: Verify SLSA provenance + SBOM attestations (GitHub)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # These attestations are produced by GitHub's attestation actions and stored as OCI referrers.
+          # Verify them using the GitHub CLI (cosign verify-attestation is only for cosign-attested predicates).
+          gh attestation verify "oci://${IMAGE_REF}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --bundle-from-oci
+          gh attestation verify "oci://${IMAGE_REF}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --bundle-from-oci \
+            --predicate-type "https://spdx.dev/Document"
+          echo "✅ Provenance + SBOM attestations verified."
 
       - name: Check Rekor for expected entries
         run: |
