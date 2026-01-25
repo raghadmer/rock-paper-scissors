@@ -44,9 +44,9 @@ jobs:
         run: docker build -t supply-chain-tools -f tools/Dockerfile .
 
       - name: Install Trivy scanner
-        uses: aquasecurity/setup-trivy@v0.19.0
+        uses: aquasecurity/setup-trivy@v1
         with:
-          version: '0.65.0'
+          version: latest
 
       - name: Run baseline scans
         run: task scan-all
