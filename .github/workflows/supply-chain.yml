@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: prep_and_scan
     env:
-      IMAGE: ghcr.io/${{ lower(github.repository_owner) }}/${{ env.IMAGE_NAME }}
+      IMAGE: ghcr.io/${{ toLower(github.repository_owner) }}/${{ env.IMAGE_NAME }}
     outputs:
       image: ${{ steps.meta.outputs.image }}
       digest: ${{ steps.push.outputs.digest }}
@@ -209,4 +209,3 @@ jobs:
         with:
           name: rekor-output
           path: rekor-output.json
-
