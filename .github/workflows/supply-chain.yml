@@ -44,9 +44,13 @@ jobs:
         run: docker build -t supply-chain-tools -f tools/Dockerfile .
 
       - name: Install Trivy scanner
-        uses: aquasecurity/setup-trivy@v1
-        with:
-          version: latest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
 
       - name: Run baseline scans
         run: task scan-all
@@ -77,6 +81,12 @@ jobs:
           task exec -- trivy fs --format cosign-vuln src/ > attestations/vuln-source.json
           task exec -- trivy config --format cosign-vuln src/iac/ > attestations/vuln-iac.json
           task exec -- trivy image --format cosign-vuln supply-chain-app:latest > attestations/vuln-image.json
+
+      - name: Enforce HIGH/CRITICAL policy
+        run: |
+          trivy fs --severity HIGH,CRITICAL --exit-code 1 src/
+          trivy config --severity HIGH,CRITICAL --exit-code 1 src/iac/
+          trivy image --severity HIGH,CRITICAL --exit-code 1 supply-chain-app:latest
 
       - name: Validate all generated attestations
         run: task validate:all-attestations
