@@ -182,15 +182,16 @@ jobs:
           echo "Signing ${IMAGE_REF}"
           cosign sign --yes "${IMAGE_REF}"
 
-      - name: Attach attestations (5 types)
+      - name: Attach vulnerability attestations (Trivy)
         env:
           COSIGN_EXPERIMENTAL: "true"
         run: |
-          for TYPE in provenance sbom vuln-source vuln-iac vuln-image; do
+          # Provenance + SBOM are already attached by docker/build-push-action (provenance/sbom settings).
+          # Here we attach the Trivy-based vuln attestations generated in prep_and_scan.
+          for TYPE in vuln-source vuln-dockerfile vuln-iac vuln-image; do
             case $TYPE in
-              provenance) PRED=attestations/provenance.json; T=https://slsa.dev/provenance/v0.2 ;;
-              sbom) PRED=attestations/sbom.json; T=https://spdx.dev/Document ;;
               vuln-source) PRED=attestations/vuln-source.json; T=https://cosign.dev/attestation/vuln/source ;;
+              vuln-dockerfile) PRED=attestations/vuln-dockerfile.json; T=https://cosign.dev/attestation/vuln/dockerfile ;;
               vuln-iac) PRED=attestations/vuln-iac.json; T=https://cosign.dev/attestation/vuln/iac ;;
               vuln-image) PRED=attestations/vuln-image.json; T=https://cosign.dev/attestation/vuln/image ;;
             esac
@@ -210,6 +211,7 @@ jobs:
             "https://slsa.dev/provenance/v0.2" \
             "https://spdx.dev/Document" \
             "https://cosign.dev/attestation/vuln/source" \
+            "https://cosign.dev/attestation/vuln/dockerfile" \
             "https://cosign.dev/attestation/vuln/iac" \
             "https://cosign.dev/attestation/vuln/image"; do
             cosign verify-attestation --experimental-oci11 \
@@ -218,7 +220,7 @@ jobs:
               --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
               "${IMAGE_REF}" > /dev/null
           done
-          echo "✅ All 5 attestations verified."
+          echo "✅ All attestations verified."
 
       - name: Check Rekor for expected entries
         run: |
