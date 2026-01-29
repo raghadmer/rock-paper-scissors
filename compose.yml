@@ -1,0 +1,17 @@
+services:
+  rps:
+    build:
+      context: .
+      dockerfile: src/docker/Dockerfile
+    ports:
+      - "9002:9002"
+    environment:
+      RPS_MODE: "serve"
+      RPS_BIND: "0.0.0.0:9002"
+      RPS_MTLS: "1"
+      RPS_SPIFFE_ID: "spiffe://<your-domain>/game-server"
+      RPS_CERT_DIR: "/app/certs"
+      SPIFFE_AGENT_SOCKET: "/tmp/spire-agent/public/api.sock"
+    volumes:
+      - /tmp/spire-agent/public/api.sock:/tmp/spire-agent/public/api.sock
+      - ./certs:/app/certs
