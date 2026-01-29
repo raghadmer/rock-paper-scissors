@@ -131,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Round {round_no}: reveal response:", reveal_resp)
 
+            outcome = reveal_resp.get("outcome")
+            if outcome == "challenger_win":
+                state.scoreboard.record_win(args.peer_id)
+            elif outcome == "responder_win":
+                state.scoreboard.record_loss(args.peer_id)
+
             if reveal_resp.get("outcome") != "tie":
                 break
 
