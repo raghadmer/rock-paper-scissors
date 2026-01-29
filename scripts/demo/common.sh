@@ -38,6 +38,36 @@ load_spire_env() {
   fi
 }
 
+ensure_spiffe_helper() {
+  local version="${SPIFFE_HELPER_VERSION:-0.11.0}"
+  local dir="${SPIFFE_HELPER_DIR:-$HOME/rps}"
+  local bin="$dir/spiffe-helper"
+
+  if [[ -x "$bin" ]]; then
+    echo "$bin"
+    return 0
+  fi
+
+  mkdir -p "$dir"
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -q -O "$dir/spiffe-helper.tgz" \
+      "https://github.com/spiffe/spiffe-helper/releases/download/v${version}/spiffe-helper_v${version}_Linux-x86_64.tar.gz"
+  elif command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "$dir/spiffe-helper.tgz" \
+      "https://github.com/spiffe/spiffe-helper/releases/download/v${version}/spiffe-helper_v${version}_Linux-x86_64.tar.gz"
+  else
+    echo "ERROR: missing wget or curl to download spiffe-helper" >&2
+    exit 1
+  fi
+
+  tar -xzf "$dir/spiffe-helper.tgz" -C "$dir"
+  chmod +x "$bin"
+  rm -f "$dir/spiffe-helper.tgz"
+
+  echo "$bin"
+}
+
 python_bin() {
   if command -v python3 >/dev/null 2>&1; then
     echo "python3"

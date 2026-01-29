@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/_common.sh"
+source "$SCRIPT_DIR/common.sh"
 
 load_spire_env
 
@@ -15,7 +15,9 @@ SERVER_SOCKET="${SERVER_SOCKET:-/tmp/spire-server/private/api.sock}"
 SPIFFE_ID="${SPIFFE_ID:-spiffe://$TRUST_DOMAIN/game-server}"
 PARENT_ID="${PARENT_ID:-spiffe://$TRUST_DOMAIN/agent}"
 SELECTOR_UID="${SELECTOR_UID:-$(id -u)}"
-SELECTOR_PATH="${SELECTOR_PATH:-/usr/local/bin/spiffe-helper}"
+if [[ -z "${SELECTOR_PATH:-}" ]]; then
+  SELECTOR_PATH="$(ensure_spiffe_helper)"
+fi
 SVID_TTL="${SVID_TTL:-300}"
 
 if [[ ! -x "$SPIRE_SERVER_BIN" ]]; then

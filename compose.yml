@@ -9,7 +9,7 @@ services:
       RPS_MODE: "serve"
       RPS_BIND: "0.0.0.0:9002"
       RPS_MTLS: "1"
-      RPS_SPIFFE_ID: "spiffe://<your-domain>/game-server"
+      RPS_SPIFFE_ID: "spiffe://noah.inter-cloud-thi.de/game-server"
       RPS_CERT_DIR: "/app/certs"
     volumes:
       - ./certs:/app/certs

@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/_common.sh"
+source "$SCRIPT_DIR/common.sh"
 
 CERT_DIR="${1:-$HOME/rps/certs}"
 HELPER_CONF="${2:-$HOME/rps/helper.conf}"

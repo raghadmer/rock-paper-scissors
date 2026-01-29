@@ -5,13 +5,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/_common.sh"
+source "$SCRIPT_DIR/common.sh"
 
 HELPER_BIN="${1:-$HOME/rps/spiffe-helper}"
 HELPER_CONF="${2:-$HOME/rps/helper.conf}"
 CERT_DIR="${3:-$HOME/rps/certs}"
 
-require_file "$HELPER_BIN"
+if [[ ! -x "$HELPER_BIN" ]]; then
+	HELPER_BIN="$(ensure_spiffe_helper)"
+fi
 require_file "$HELPER_CONF"
 chmod +x "$HELPER_BIN"
 
