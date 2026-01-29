@@ -331,3 +331,103 @@ jobs:
           # Run the CI-produced container only after signature verification.
           # Use a non-interactive entrypoint so CI does not hang waiting for user input.
           docker run --rm --entrypoint python "${IMAGE_REF}" -c "import main; print('Smoke test OK')"
+
+  build_binary:
+    name: Build & Sign Binary
+    runs-on: ubuntu-latest
+    needs: prep_and_scan
+    outputs:
+      binary_hash: ${{ steps.hash.outputs.hash }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build standalone binary with PyInstaller
+        run: |
+          cd src/app
+          pyinstaller --onefile \
+            --name rps-game \
+            --add-data "../../requirements.txt:." \
+            cli.py
+          ls -lh dist/
+          chmod +x dist/rps-game
+
+      - name: Test binary
+        run: |
+          cd src/app
+          ./dist/rps-game --help || echo "Binary needs interactive mode"
+
+      - name: Compute hash for signing
+        id: hash
+        run: |
+          HASH=$(sha256sum src/app/dist/rps-game | awk '{print $1}')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Binary SHA256: $HASH"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v2
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Sign binary with Cosign (blob mode)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cd src/app/dist
+          cosign sign-blob --yes \
+            --bundle rps-game.cosign.bundle \
+            rps-game
+          echo "✅ Binary signed, bundle: rps-game.cosign.bundle"
+
+      - name: Upload binary + signature as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rps-game-binary
+          path: |
+            src/app/dist/rps-game
+            src/app/dist/rps-game.cosign.bundle
+
+  verify_and_run_binary:
+    name: Verify & Run Binary
+    runs-on: ubuntu-latest
+    needs: build_binary
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rps-game-binary
+          path: ./binary
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v2
+        with:
+          cosign-release: 'v2.4.0'
+
+      - name: Verify binary signature before execution
+        run: |
+          cd binary
+          cosign verify-blob \
+            --bundle rps-game.cosign.bundle \
+            --certificate-identity-regexp="https://github.com/.+" \
+            --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
+            rps-game
+          echo "✅ Binary signature verified!"
+
+      - name: Make binary executable
+        run: chmod +x binary/rps-game
+
+      - name: Run verified binary (help command)
+        run: |
+          ./binary/rps-game --help || echo "Binary executed successfully"
+

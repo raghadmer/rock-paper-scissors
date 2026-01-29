@@ -1,6 +1,72 @@
 # rock-paper-scissors
 
-This guide provides all commands needed to deploy and play the RPS game with SPIFFE mTLS federation.
+Federated Rock-Paper-Scissors game with SPIFFE mTLS authentication and supply chain security.
+
+## 🎮 Quick Start
+
+### Option 1: Download Pre-Built Signed Binary (Recommended)
+
+```bash
+# Download and verify the signed binary from GitHub Actions
+bash <(curl -s https://raw.githubusercontent.com/YOUR-USERNAME/rock-paper-scissors/main/scripts/download-and-verify-binary.sh)
+```
+
+This script will:
+1. Download the latest binary from GitHub Actions artifacts
+2. Verify the Cosign signature (keyless signing)
+3. Extract the binary to a temporary directory
+4. Run a quick test
+
+### Option 2: Docker Image
+
+```bash
+docker pull ghcr.io/YOUR-USERNAME/rock-paper-scissors:latest
+```
+
+### Option 3: Build from Source
+
+```bash
+git clone https://github.com/YOUR-USERNAME/rock-paper-scissors.git
+cd rock-paper-scissors
+pip install -r requirements.txt
+python src/app/cli.py --help
+```
+
+---
+
+## 📦 Supply Chain Security
+
+This project demonstrates complete supply chain security:
+
+✅ **Phase 1 - Scanning:** Trivy scans (source, Docker, IaC, image)  
+✅ **Phase 2 - Attestations:** SLSA provenance, SBOM, vulnerability attestations  
+✅ **Phase 3 - Signing:** Cosign keyless signing (GitHub OIDC)  
+✅ **Phase 4 - CI/CD:** Automated GitHub Actions pipeline  
+
+**Bonus Features:**
+- ✅ Game binary built in CI/CD (PyInstaller)
+- ✅ Binary downloadable from pipeline (GitHub Actions artifacts)
+- ✅ Signature verification before execution (Cosign blob signing)
+
+### Manual Download & Verify
+
+If you prefer manual steps:
+
+```bash
+# 1. Download artifact from GitHub Actions
+gh run download <RUN_ID> --repo YOUR-USERNAME/rock-paper-scissors --name rps-game-binary
+
+# 2. Verify signature
+cosign verify-blob \
+  --bundle rps-game.cosign.bundle \
+  --certificate-identity-regexp="https://github.com/.+" \
+  --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
+  rps-game
+
+# 3. Run
+chmod +x rps-game
+./rps-game --help
+```
 
 ---
 
