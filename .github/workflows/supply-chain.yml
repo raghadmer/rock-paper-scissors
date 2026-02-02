@@ -190,7 +190,10 @@ jobs:
                 "uri": "git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_SHA}",
                 "digest": {"sha1": "${GITHUB_SHA}"}
               },
-              "parameters": {
+              "param              cd ~/temp
+              rm rps-game rps-game.cosign.bundle
+              curl -L -o rps-game https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game
+              curl -L -o rps-game.cosign.bundle https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game.cosign.bundleeters": {
                 "workflow": "${GITHUB_WORKFLOW}",
                 "ref": "${GITHUB_REF}",
                 "runner": "${RUNNER_OS}"
@@ -345,11 +348,14 @@ jobs:
       - name: Build binary in Ubuntu 22.04 container (glibc 2.35 compatibility)
         run: |
           docker run --rm -v "$PWD:/app" -w /app ubuntu:22.04 bash -c "
+            export DEBIAN_FRONTEND=noninteractive
             apt-get update && apt-get install -y python3 python3-pip python3-venv binutils
-            python3 -m pip install --upgrade pip --break-system-packages
-            python3 -m pip install -r requirements.txt pyinstaller --break-system-packages
+            python3 -m venv /tmp/venv
+            . /tmp/venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt pyinstaller
             cd src/app
-            python3 -m PyInstaller --onefile --name rps-game --add-data '../../requirements.txt:.' cli.py
+            pyinstaller --onefile --name rps-game --add-data '../../requirements.txt:.' cli.py
             chmod +x dist/rps-game
             ls -lh dist/
           "
