@@ -367,44 +367,68 @@ Scores are tracked in-memory during the game session and displayed after each ma
 
 ## Part 5: Testing Locally (Single VM, Two Identities)
 
-If you want to test without a second VM:
+To test locally with two identities, you need **separate certificates** for each player. The easiest approach is to use the **same SPIFFE ID** for both (self-play) or run without mTLS for local testing.
 
-### 5.1 Register Second Workload
+### Option A: Self-Play (Same Identity)
+
+Test the game logic without federation. Both containers use the same identity:
+
+**Terminal 1 - Server:**
+```bash
+docker run -it --rm \
+  --network host \
+  -v ~/certs:/app/certs:ro \
+  -e RPS_MODE=serve \
+  -e RPS_BIND=0.0.0.0:9002 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
+```
+
+**Terminal 2 - Challenger (same identity challenges itself for testing):**
+```bash
+docker run -it --rm \
+  --network host \
+  -v ~/certs:/app/certs:ro \
+  -e RPS_MODE=play \
+  -e RPS_BIND=0.0.0.0:9003 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_PEER_URL=https://localhost:9002 \
+  -e RPS_PEER_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_PUBLIC_URL=https://localhost:9003 \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
+```
+
+### Option B: Two Identities with Container Selectors
+
+For true two-identity testing, register workloads with **container selectors** instead of UID selectors:
 
 ```bash
 cd ~/spire-1.13.3
 
-# Register second identity
+# Register Alice (container selector)
+sudo ./bin/spire-server entry create \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
+  -selector docker:label:player:alice
+
+# Register Bob (container selector)  
 sudo ./bin/spire-server entry create \
   -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-bob \
   -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
-  -selector unix:uid:$(id -u)
+  -selector docker:label:player:bob
 ```
 
-### 5.2 Generate Certs for Second Identity
-
+Then run containers with labels and mount the SPIRE agent socket:
 ```bash
-# Create second cert directory
-mkdir -p ~/certs-bob
-
-# Create second spiffe-helper config
-cat > ~/spiffe-helper-bob.conf <<EOF
-agent_address = "/tmp/spire-agent/public/api.sock"
-cmd = ""
-cmd_args = ""
-cert_dir = "$HOME/certs-bob"
-renew_signal = ""
-svid_file_name = "svid.pem"
-svid_key_file_name = "svid_key.pem"
-svid_bundle_file_name = "svid_bundle.pem"
-EOF
-
-# Fetch certs (requires bob's SPIFFE ID to be registered)
-# This won't work automatically - you'd need workload attestation to distinguish
-# For testing, manually create a process that requests bob's identity
+# This requires spiffe-helper or go-spiffe in the container
+# See Part 6 (Kubernetes) for production deployment with sidecar pattern
 ```
 
-**Note:** For true local testing with two identities, you need separate processes with different selectors (e.g., different UIDs or container IDs). Simpler approach: use two VMs.
+### Option C: Federation with Another Team (Recommended)
+
+The proper way to test different identities is with **federation between trust domains**. See Part 3 for federation setup with a peer's VM.
 
 ---
 

@@ -94,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
             daemon=True,
         )
         t.start()
+        # Give the server time to bind and start listening before sending the challenge.
+        time.sleep(1)
+        print(f"Listening on {scheme}://{host}:{port}")
 
         match_id = str(uuid.uuid4())
 
