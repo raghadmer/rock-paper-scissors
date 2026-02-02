@@ -88,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # Run the server in the background so the peer can POST /response back.
         ssl_context = create_server_ssl_context(mtls_files) if mtls_files is not None else None
+        
+        # Compute scheme before starting server
+        scheme = "https" if mtls_files is not None else "http"
+        
         t = threading.Thread(
             target=run_server,
             kwargs={"host": host, "port": port, "state": state, "ssl_context": ssl_context},
@@ -102,7 +106,6 @@ def main(argv: list[str] | None = None) -> int:
 
         # For cross-VM play, peers need a reachable callback URL for message 2.
         # If you don't pass --public-url, we can only work on localhost demos.
-        scheme = "https" if mtls_files is not None else "http"
         challenger_url = args.public_url or f"{scheme}://{_public_bind_host(host)}:{port}"
 
         round_no = 1

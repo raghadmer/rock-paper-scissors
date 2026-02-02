@@ -26,15 +26,9 @@ chmod +x rps-game
 **Prerequisites:**
 - Cosign installed: `curl -fsSL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o cosign && chmod +x cosign && sudo mv cosign /usr/local/bin/`
 
-This script will:
-1. Download the latest binary from GitHub Actions artifacts
-2. Verify the Cosign signature (keyless signing)
-3. Extract the binary to a temporary directory
-4. Run a quick test
-
 **Optional:** Copy binary to your PATH:
 ```bash
-sudo cp /tmp/tmp.*/rps-game /usr/local/bin/
+sudo cp rps-game /usr/local/bin/
 ```
 
 ### Option 2: Docker Image
@@ -258,6 +252,18 @@ ls -lh ~/certs/
 ```
 
 You should see `svid.0.pem`, `svid.0.key`, and `bundle.0.pem`.
+
+**Rename files to expected names:**
+
+```bash
+cd ~/certs
+mv svid.0.pem svid.pem
+mv svid.0.key svid_key.pem
+mv bundle.0.pem svid_bundle.pem
+ls -la
+```
+
+You should now see: `svid.pem`, `svid_key.pem`, `svid_bundle.pem`
 
 **Note:** The rock-paper-scissors Docker container will fetch certificates automatically when it runs - these manual steps are just for verification.
 

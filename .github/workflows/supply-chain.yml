@@ -352,7 +352,19 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt pyinstaller
             cd src/app
-            pyinstaller --onefile --name rps-game --add-data '../../requirements.txt:.' cli.py
+            # Include all local modules as hidden imports
+            pyinstaller --onefile --name rps-game \
+              --add-data '../../requirements.txt:.' \
+              --hidden-import=http_api \
+              --hidden-import=protocol \
+              --hidden-import=game \
+              --hidden-import=commit_reveal \
+              --hidden-import=rps_client \
+              --hidden-import=scoreboard \
+              --hidden-import=spiffe_mtls \
+              --hidden-import=move_signing \
+              --hidden-import=main \
+              cli.py
             chmod +x dist/rps-game
             ls -lh dist/
           "
