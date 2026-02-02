@@ -190,10 +190,7 @@ jobs:
                 "uri": "git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_SHA}",
                 "digest": {"sha1": "${GITHUB_SHA}"}
               },
-              "param              cd ~/temp
-              rm rps-game rps-game.cosign.bundle
-              curl -L -o rps-game https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game
-              curl -L -o rps-game.cosign.bundle https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game.cosign.bundleeters": {
+              "parameters": {
                 "workflow": "${GITHUB_WORKFLOW}",
                 "ref": "${GITHUB_REF}",
                 "runner": "${RUNNER_OS}"
@@ -359,6 +356,8 @@ jobs:
             chmod +x dist/rps-game
             ls -lh dist/
           "
+          # Fix ownership - Docker runs as root, but runner needs write access
+          sudo chown -R $(id -u):$(id -g) src/app/dist/
 
       - name: Test binary
         run: |
@@ -387,13 +386,18 @@ jobs:
             rps-game
           echo "✅ Binary signed, bundle: rps-game.cosign.bundle"
 
+      - name: Stage binary for upload
+        run: |
+          mkdir -p ./release-staging
+          cp src/app/dist/rps-game ./release-staging/
+          cp src/app/dist/rps-game.cosign.bundle ./release-staging/
+          ls -la ./release-staging/
+
       - name: Upload binary + signature as artifact
         uses: actions/upload-artifact@v4
         with:
           name: rps-game-binary
-          path: |
-            src/app/dist/rps-game
-            src/app/dist/rps-game.cosign.bundle
+          path: ./release-staging/
 
   verify_and_run_binary:
     name: Verify & Run Binary
@@ -405,6 +409,11 @@ jobs:
         with:
           name: rps-game-binary
           path: ./binary
+
+      - name: List downloaded files
+        run: |
+          echo "Contents of ./binary:"
+          ls -laR ./binary/
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v2
@@ -442,6 +451,11 @@ jobs:
         with:
           name: rps-game-binary
           path: ./release
+
+      - name: List downloaded files
+        run: |
+          echo "Contents of ./release:"
+          ls -laR ./release/
 
       - name: Create release tag
         id: tag
