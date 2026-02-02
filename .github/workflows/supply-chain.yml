@@ -431,3 +431,54 @@ jobs:
         run: |
           ./binary/rps-game --help || echo "Binary executed successfully"
 
+  publish_release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs:
+      - build_binary
+      - verify_and_run_binary
+    permissions:
+      contents: write
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rps-game-binary
+          path: ./release
+
+      - name: Create release tag
+        id: tag
+        run: |
+          TAG="v0.1.0-${{ github.run_number }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release with binary
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Rock-Paper-Scissors ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## Signed Binary Release
+
+            This release contains the signed `rps-game` binary.
+
+            ### Verification
+            Download both files and verify the signature before running:
+            ```bash
+            cosign verify-blob \
+              --bundle rps-game.cosign.bundle \
+              --certificate-identity-regexp="https://github.com/.+" \
+              --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
+              rps-game
+            ```
+
+            ### Usage
+            ```bash
+            chmod +x rps-game
+            ./rps-game --help
+            ```
+          files: |
+            release/rps-game
+            release/rps-game.cosign.bundle
+          draft: false
+          prerelease: false

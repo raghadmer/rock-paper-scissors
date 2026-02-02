@@ -4,19 +4,26 @@ Federated Rock-Paper-Scissors game with SPIFFE mTLS authentication and supply ch
 
 ## 🎮 Quick Start
 
-### Option 1: Download Pre-Built Signed Binary (Recommended)
+### Option 1: Download Pre-Built Signed Binary from GitHub Releases
 
 ```bash
-# Clone the repository (requires authentication for private repos)
-git clone https://github.com/npaulat99/rock-paper-scissors.git
-cd rock-paper-scissors
+# Download the latest release binary and signature bundle
+curl -L -o rps-game https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game
+curl -L -o rps-game.cosign.bundle https://github.com/npaulat99/rock-paper-scissors/releases/latest/download/rps-game.cosign.bundle
 
-# Download and verify the signed binary from GitHub Actions
-bash scripts/download-and-verify-binary.sh
+# Verify the signature before running (supply chain security!)
+cosign verify-blob \
+  --bundle rps-game.cosign.bundle \
+  --certificate-identity-regexp="https://github.com/.+" \
+  --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
+  rps-game
+
+# Make executable and run
+chmod +x rps-game
+./rps-game --help
 ```
 
 **Prerequisites:**
-- GitHub CLI (`gh`) installed and authenticated: `gh auth login`
 - Cosign installed: `curl -fsSL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o cosign && chmod +x cosign && sudo mv cosign /usr/local/bin/`
 
 This script will:
@@ -63,20 +70,21 @@ This project demonstrates complete supply chain security:
 
 ### Manual Download & Verify
 
-If you prefer manual steps:
+The signed binary is available from **GitHub Releases**:
+
+1. Go to: https://github.com/npaulat99/rock-paper-scissors/releases
+2. Download `rps-game` and `rps-game.cosign.bundle`
+3. Verify and run:
 
 ```bash
-# 1. Download artifact from GitHub Actions
-gh run download <RUN_ID> --repo npaulat99/rock-paper-scissors --name rps-game-binary
-
-# 2. Verify signature
+# Verify signature (supply chain security requirement!)
 cosign verify-blob \
   --bundle rps-game.cosign.bundle \
   --certificate-identity-regexp="https://github.com/.+" \
   --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com" \
   rps-game
 
-# 3. Run
+# Run verified binary
 chmod +x rps-game
 ./rps-game --help
 ```
@@ -308,16 +316,15 @@ docker build -f src/docker/Dockerfile -t rock-paper-scissors:latest .
 ### 4.2 Run in Serve Mode (Wait for Challenges)
 
 ```bash
-# Run server in interactive mode
+# Run server in interactive mode (Alice)
 docker run -it --rm \
   --network host \
   -v ~/certs:/app/certs:ro \
-  ghcr.io/npaulat99/rock-paper-scissors:latest \
-  serve \
-  --bind 0.0.0.0:9002 \
-  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-alice \
-  --mtls \
-  --cert-dir /app/certs
+  -e RPS_MODE=serve \
+  -e RPS_BIND=0.0.0.0:9002 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
 
 **What happens:**
@@ -330,19 +337,18 @@ docker run -it --rm \
 **In another terminal or VM:**
 
 ```bash
-# Challenge another player
+# Challenge another player (Bob challenges Alice)
 docker run -it --rm \
   --network host \
   -v ~/certs:/app/certs:ro \
-  ghcr.io/npaulat99/rock-paper-scissors:latest \
-  play \
-  --bind 0.0.0.0:9003 \
-  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-alice \
-  --peer https://PEER-IP:9002 \
-  --peer-id spiffe://PEER-TRUST-DOMAIN.example.com/game-server-bob \
-  --public-url https://YOUR-PUBLIC-IP:9003 \
-  --mtls \
-  --cert-dir /app/certs
+  -e RPS_MODE=play \
+  -e RPS_BIND=0.0.0.0:9003 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-bob \
+  -e RPS_PEER_URL=https://localhost:9002 \
+  -e RPS_PEER_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_PUBLIC_URL=https://localhost:9003 \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
 
 **What happens:**
@@ -355,13 +361,7 @@ docker run -it --rm \
 
 ### 4.4 View Scores
 
-```bash
-# View your local scoreboard
-docker run -it --rm \
-  -v ~/.rps:/root/.rps \
-  ghcr.io/npaulat99/rock-paper-scissors:latest \
-  scores
-```
+Scores are tracked in-memory during the game session and displayed after each match. You can also view the scoreboard at any time by pressing `Ctrl+C` to see final scores.
 
 ---
 
