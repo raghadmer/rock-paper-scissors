@@ -368,8 +368,8 @@ jobs:
             echo "if __name__ == \"__main__\":" >> rps_bundle.py
             echo "    cli.main()" >> rps_bundle.py
             
-            # Build with the bundle that explicitly imports all modules
-            pyinstaller --onefile --name rps-game rps_bundle.py
+            # Build with --paths=. to include local modules
+            pyinstaller --onefile --name rps-game --paths=. rps_bundle.py
             chmod +x dist/rps-game
             ls -lh dist/
           '

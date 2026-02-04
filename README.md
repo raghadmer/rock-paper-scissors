@@ -144,14 +144,10 @@ EOF
 # Replace YOUR-TRUST-DOMAIN with your actual domain (e.g., alice.inter-cloud-thi.de)
 ```
 
-### 1.3 Configure SPIRE Agent
+### 1.3 Create SPIRE Agent Config (Template)
 
 ```bash
-# Get server trust bundle first
-cd ~/spire-1.13.3
-sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
-
-# Create agent config
+# Create agent config (we'll get the trust bundle after server starts)
 sudo tee /opt/spire/agent/agent.conf > /dev/null <<'EOF'
 agent {
   data_dir = "/tmp/spire-agent/data"
@@ -205,6 +201,10 @@ sleep 5
 
 # Verify server is running
 sudo ./bin/spire-server healthcheck
+
+# NOW get the bootstrap bundle for the agent (server must be running first!)
+sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
+echo "Bootstrap bundle saved to /tmp/bootstrap-bundle.crt"
 ```
 
 ### 1.5 Generate Join Token and Start Agent
@@ -291,36 +291,65 @@ You should now see: `svid.pem`, `svid_key.pem`, `svid_bundle.pem`
 
 **This section is for federating with another team's trust domain.**
 
+### Federation Partner: Raghad
+
+- **Trust Domain:** `raghad.inter-cloud-thi.de`
+- **IP Address:** `4.185.211.9`
+- **URL:** `raghad.inter-cloud-thi.de`
+
 ### 3.1 Export Your Trust Bundle
 
 ```bash
 cd ~/spire-1.13.3
 
-# Export your trust bundle
+# Export your trust bundle in SPIFFE format
 sudo ./bin/spire-server bundle show -format spiffe > ~/my-trust-bundle.json
 
-# Share this file with your peer (e.g., via email, USB, or secure file transfer)
+# Share this file with Raghad (e.g., via email, USB, or secure file transfer)
 cat ~/my-trust-bundle.json
 ```
 
-### 3.2 Import Peer's Trust Bundle
+### 3.2 Import Raghad's Trust Bundle
 
-**After receiving peer's trust bundle (e.g., `peer-trust-bundle.json`):**
+**After receiving Raghad's trust bundle (save it as `~/raghad-trust-bundle.json`):**
 
 ```bash
 cd ~/spire-1.13.3
 
-# Set the peer trust bundle
+# Import Raghad's trust bundle
 sudo ./bin/spire-server bundle set \
   -format spiffe \
-  -id spiffe://PEER-TRUST-DOMAIN.example.com \
-  < ~/peer-trust-bundle.json
+  -id spiffe://raghad.inter-cloud-thi.de \
+  < ~/raghad-trust-bundle.json
 
-# Verify federation
+# Verify federation - you should see both trust domains
 sudo ./bin/spire-server bundle list
 ```
 
-You should see both your trust domain and the peer's trust domain listed.
+You should see:
+- `spiffe://noah.inter-cloud-thi.de` (your trust domain)
+- `spiffe://raghad.inter-cloud-thi.de` (Raghad's trust domain)
+
+### 3.3 Challenge Raghad (Cross-Domain Play)
+
+Once federation is set up, you can challenge Raghad's game server:
+
+```bash
+# Challenge Raghad's game server
+docker run -it --rm \
+  --network host \
+  -v ~/certs:/app/certs:ro \
+  -e RPS_MODE=play \
+  -e RPS_BIND=0.0.0.0:9003 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-alice \
+  -e RPS_PEER_URL=https://4.185.211.9:9002 \
+  -e RPS_PEER_ID=spiffe://raghad.inter-cloud-thi.de/game-server-raghad \
+  -e RPS_PUBLIC_URL=https://$(curl -s ifconfig.me):9003 \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
+```
+
+**Note:** Replace `game-server-raghad` with Raghad's actual SPIFFE workload ID.
 
 ---
 
