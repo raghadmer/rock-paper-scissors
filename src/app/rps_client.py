@@ -6,6 +6,7 @@ import urllib.request
 from typing import Any
 
 from commit_reveal import compute_commitment, generate_salt
+from move_signing import SignedMove
 from protocol import Move
 from spiffe_mtls import MtlsFiles, create_client_ssl_context
 
@@ -52,8 +53,16 @@ def send_reveal(
     salt: str,
     challenger_spiffe_id: str,
     mtls_files: MtlsFiles | None = None,
+    signed_move: SignedMove | None = None,
 ) -> dict[str, Any]:
-    payload = {"match_id": match_id, "round": round, "move": move, "salt": salt}
+    payload: dict[str, Any] = {"match_id": match_id, "round": round, "move": move, "salt": salt}
+    if signed_move is not None and signed_move.signing_method != "none":
+        payload["move_signature"] = {
+            "signing_method": signed_move.signing_method,
+            "signature": signed_move.signature,
+        }
+        if signed_move.transparency_log_entry:
+            payload["move_signature"]["transparency_log_entry"] = signed_move.transparency_log_entry
     return _post_json(peer_base_url + "/v1/rps/reveal", payload, challenger_spiffe_id, mtls_files=mtls_files)
 
 

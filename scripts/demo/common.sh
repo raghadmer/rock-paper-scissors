@@ -26,16 +26,50 @@ require_dir() {
 
 # Load lab environment variables if present.
 load_spire_env() {
-  local conf="${1:-$HOME/spire-lab.conf}"
+  local conf="${1:-$HOME/spire.conf}"
   if [[ -f "$conf" ]]; then
     # shellcheck disable=SC1090
     source "$conf"
   fi
   : "${TRUST_DOMAIN:=${TRUST_DOMAIN:-}}"
   if [[ -z "${TRUST_DOMAIN:-}" ]]; then
-    echo "ERROR: TRUST_DOMAIN not set. Source ~/spire-lab.conf or export TRUST_DOMAIN." >&2
+    echo "ERROR: TRUST_DOMAIN not set. Create ~/spire.conf or export TRUST_DOMAIN." >&2
+    echo "Run:  generate_spire_conf  to create it interactively." >&2
     exit 1
   fi
+}
+
+generate_spire_conf() {
+  local conf="${1:-$HOME/spire.conf}"
+  if [[ -f "$conf" ]]; then
+    echo "Config already exists: $conf"
+    # shellcheck disable=SC1090
+    source "$conf"
+    return 0
+  fi
+
+  echo "=== Generating $conf ==="
+  read -rp "Enter your trust domain (e.g. noah.inter-cloud-thi.de): " td
+  if [[ -z "$td" ]]; then
+    echo "ERROR: Trust domain cannot be empty." >&2
+    return 1
+  fi
+  read -rp "Enter your player name (e.g. noah): " player
+  player="${player:-noah}"
+
+  cat > "$conf" <<CONF
+# Auto-generated SPIRE configuration for RPS game
+export TRUST_DOMAIN="$td"
+export SPIRE_SERVER_BIN="\$HOME/spire-1.13.3/bin/spire-server"
+export SERVER_SOCKET="/tmp/spire-server/private/api.sock"
+export SPIFFE_ID="spiffe://\$TRUST_DOMAIN/game-server-$player"
+export PARENT_ID="spiffe://\$TRUST_DOMAIN/agent"
+export CERT_DIR="\$HOME/certs"
+CONF
+
+  echo "Created $conf"
+  # shellcheck disable=SC1090
+  source "$conf"
 }
 
 ensure_spiffe_helper() {

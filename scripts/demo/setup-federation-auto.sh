@@ -17,7 +17,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-load_spire_env
+# Auto-generate ~/spire.conf if it doesn't exist
+if [[ ! -f "$HOME/spire.conf" ]]; then
+  generate_spire_conf
+fi
+
+load_spire_env "$HOME/spire.conf"
 
 PEER_DOMAIN="${1:-}"
 PEER_ADDR="${2:-}"

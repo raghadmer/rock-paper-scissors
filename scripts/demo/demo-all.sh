@@ -6,7 +6,7 @@ set -euo pipefail
 #   ./scripts/demo/demo-all.sh
 #
 # This script:
-# - sources ~/spire-lab.conf if present
+# - sources ~/spire.conf (auto-generates if missing)
 # - generates helper.conf if missing
 # - fetches certs via spiffe-helper
 # - launches the unified interactive RPS CLI

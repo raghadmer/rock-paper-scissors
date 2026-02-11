@@ -38,9 +38,14 @@ fi
 RPS_ACME_CERT="${RPS_ACME_CERT:-}"
 RPS_ACME_KEY="${RPS_ACME_KEY:-}"
 RPS_ACME_BIND="${RPS_ACME_BIND:-0.0.0.0:443}"
+RPS_SIGN_MOVES="${RPS_SIGN_MOVES:-}"
 
 if [[ -n "$RPS_ACME_CERT" && -n "$RPS_ACME_KEY" ]]; then
   CMD_ARGS+=("--acme-cert" "$RPS_ACME_CERT" "--acme-key" "$RPS_ACME_KEY" "--acme-bind" "$RPS_ACME_BIND")
+fi
+
+if [[ "$RPS_SIGN_MOVES" == "1" || "$RPS_SIGN_MOVES" == "true" ]]; then
+  CMD_ARGS+=("--sign-moves")
 fi
 
 exec python /app/cli.py "${CMD_ARGS[@]}" "${RPS_MTLS_ARGS[@]}"

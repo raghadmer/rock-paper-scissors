@@ -8,6 +8,13 @@ import uuid
 
 from acme_scoreboard import start_acme_scoreboard
 from http_api import ServerState, run_server
+from move_signing import (
+    SignedMove,
+    is_signing_available,
+    sign_move_sigstore,
+    sign_move_ssh,
+    create_unsigned_move,
+)
 from protocol import Move, is_valid_move
 from rps_client import send_challenge, send_reveal
 from scoreboard import ScoreBoard
@@ -52,6 +59,16 @@ def main(argv: list[str] | None = None) -> int:
         default="0.0.0.0:443",
         help="Bind address for the ACME/WebPKI scoreboard (default: 0.0.0.0:443)",
     )
+    parser.add_argument(
+        "--sign-moves",
+        action="store_true",
+        help="Cryptographically sign every move (auto-detects Sigstore/SSH)",
+    )
+    parser.add_argument(
+        "--ssh-key",
+        default="~/.ssh/id_ed25519",
+        help="SSH private key for move signing (default: ~/.ssh/id_ed25519)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -66,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
 
     scheme = "https" if mtls_files is not None else "http"
 
+    # Move signing
+    signing_method = "none"
+    if args.sign_moves:
+        signing_method = is_signing_available()
+        if signing_method == "none":
+            print("WARNING: --sign-moves requested but no signing tool found.")
+            print("  Install cosign or create ~/.ssh/id_ed25519 for move signing.")
+
     state = ServerState(
         scoreboard=sb,
         server_spiffe_id=args.spiffe_id,
@@ -74,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         mtls_files=mtls_files,
         prompt_move_callback=_prompt_for_move,
         game_result_callback=_show_game_result,
+        signing_method=signing_method,
+        ssh_key_path=args.ssh_key,
     )
 
     # Start HTTP(S) server in background
@@ -109,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Listening : {scheme}://{host}:{port}")
     print(f"  Public URL: {challenger_url}")
     print(f"  Scoreboard: {scheme}://{host}:{port}/v1/rps/scores")
+    if signing_method != "none":
+        print(f"  Signing   : {signing_method}")
     if acme_info:
         print(acme_info)
     print("=" * 60)
@@ -160,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             # Run the challenge in a thread so the server keeps handling requests
             challenge_thread = threading.Thread(
                 target=_run_challenge,
-                args=(state, peer_url, peer_id, args.spiffe_id, challenger_url, mtls_files),
+                args=(state, peer_url, peer_id, args.spiffe_id, challenger_url, mtls_files, signing_method, args.ssh_key),
                 daemon=True,
             )
             challenge_thread.start()
@@ -176,6 +205,8 @@ def _run_challenge(
     my_spiffe_id: str,
     challenger_url: str,
     mtls_files: MtlsFiles | None,
+    signing_method: str = "none",
+    ssh_key_path: str = "~/.ssh/id_ed25519",
 ) -> None:
     """Run a full challenge sequence in a background thread."""
     match_id = str(uuid.uuid4())
@@ -221,6 +252,16 @@ def _run_challenge(
             print("rps> ", end="", flush=True)
             return
 
+        # Sign the move before revealing
+        signed_move = _sign_move(
+            signing_method=signing_method,
+            move=move,
+            match_id=match_id,
+            round_no=round_no,
+            signer_spiffe_id=my_spiffe_id,
+            ssh_key_path=ssh_key_path,
+        )
+
         try:
             reveal_resp = send_reveal(
                 peer_base_url=peer_url,
@@ -230,6 +271,7 @@ def _run_challenge(
                 salt=salt,
                 challenger_spiffe_id=my_spiffe_id,
                 mtls_files=mtls_files,
+                signed_move=signed_move,
             )
         except Exception as exc:
             print(f"\n❌ Reveal failed: {exc}")
@@ -246,6 +288,8 @@ def _run_challenge(
         print(f"  Opponent : {peer_id}")
         print(f"  You played: {challenger_move}")
         print(f"  Opponent played: {responder_move}")
+        if signed_move.signing_method != "none":
+            print(f"  Move signed: ✅ ({signed_move.signing_method})")
         if outcome == "tie":
             print("  Result: 🤝 TIE — replaying...")
         elif outcome == "challenger_win":
@@ -269,6 +313,47 @@ def _run_challenge(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _sign_move(
+    *,
+    signing_method: str,
+    move: Move,
+    match_id: str,
+    round_no: int,
+    signer_spiffe_id: str,
+    ssh_key_path: str = "~/.ssh/id_ed25519",
+) -> SignedMove:
+    """Sign a move using the configured method."""
+    if signing_method == "sigstore":
+        try:
+            return sign_move_sigstore(
+                move=move, match_id=match_id, round=round_no,
+                signer_spiffe_id=signer_spiffe_id,
+            )
+        except Exception as exc:
+            print(f"  ⚠ Sigstore signing failed ({exc}), move sent unsigned")
+            return create_unsigned_move(
+                move=move, match_id=match_id, round=round_no,
+                signer_spiffe_id=signer_spiffe_id,
+            )
+    if signing_method == "ssh":
+        try:
+            return sign_move_ssh(
+                move=move, match_id=match_id, round=round_no,
+                signer_spiffe_id=signer_spiffe_id,
+                ssh_key_path=ssh_key_path,
+            )
+        except Exception as exc:
+            print(f"  ⚠ SSH signing failed ({exc}), move sent unsigned")
+            return create_unsigned_move(
+                move=move, match_id=match_id, round=round_no,
+                signer_spiffe_id=signer_spiffe_id,
+            )
+    return create_unsigned_move(
+        move=move, match_id=match_id, round=round_no,
+        signer_spiffe_id=signer_spiffe_id,
+    )
 
 
 def _wait_for(predicate, timeout_seconds: int) -> None:

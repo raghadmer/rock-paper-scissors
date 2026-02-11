@@ -11,6 +11,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 from commit_reveal import verify_commitment
+from move_signing import (
+    SignedMove,
+    create_move_payload,
+    verify_move_sigstore,
+    verify_move_ssh,
+)
 from protocol import Move, determine_outcome, is_valid_move
 from scoreboard import ScoreBoard
 from spiffe_mtls import MtlsFiles, create_client_ssl_context, extract_spiffe_id_from_peer_cert
@@ -48,6 +54,8 @@ class ServerState:
     # Callback to notify responder of game result after reveal.
     # Signature: (match_id: str, round: int, outcome: str, challenger_move: Move, responder_move: Move, challenger_id: str) -> None
     game_result_callback: Callable[[str, int, str, Move, Move, str], None] | None = None
+    signing_method: str = "none"
+    ssh_key_path: str = "~/.ssh/id_ed25519"
 
 
 def run_server(
@@ -286,6 +294,35 @@ def _make_handler(state: ServerState):
             existing.challenger_reveal_salt = salt
             existing.status = "revealed"
 
+            # Verify move signature if provided
+            move_sig = body.get("move_signature")
+            sig_status = "unsigned"
+            if isinstance(move_sig, dict):
+                sig_method = move_sig.get("signing_method", "none")
+                if sig_method in ("sigstore", "ssh"):
+                    signed = SignedMove(
+                        move=move,  # type: ignore[arg-type]
+                        match_id=match_id,
+                        round=round_no,
+                        signer_spiffe_id=challenger_id,
+                        signature=move_sig.get("signature", ""),
+                        signing_method=sig_method,  # type: ignore[arg-type]
+                        transparency_log_entry=move_sig.get("transparency_log_entry"),
+                    )
+                    try:
+                        if sig_method == "sigstore":
+                            ok = verify_move_sigstore(signed)
+                        else:
+                            # SSH verification needs allowed_signers — log but accept
+                            ok = True
+                            sig_status = f"ssh (signature received)"
+                        if ok and sig_method == "sigstore":
+                            sig_status = "sigstore \u2705 verified"
+                        elif not ok:
+                            sig_status = f"{sig_method} \u274c FAILED"
+                    except Exception as exc:
+                        sig_status = f"{sig_method} (verify error: {exc})"
+
             outcome = determine_outcome(move, existing.responder_move)  # type: ignore[arg-type]
             # Scoreboard is tracked from *this server's* perspective (the responder).
             if outcome == "challenger_win":
@@ -312,6 +349,7 @@ def _make_handler(state: ServerState):
                     "outcome": outcome,
                     "challenger_move": move,
                     "responder_move": existing.responder_move,
+                    "move_signature": sig_status,
                 }
             )
 
