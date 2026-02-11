@@ -87,9 +87,9 @@ Replace placeholders in commands below with your own values:
 
 | Placeholder | Noah | Raghad |
 |-------------|------|--------|
-| `<DOMAIN>` | `noah.inter-cloud-thi.de` | `raghad.inter-cloud-thi.de` |
-| `<IP>` | `4.185.66.130` | `4.185.211.9` |
-| `<NAME>` | `noah` | `raghad` |
+| `noah.inter-cloud-thi.de` | `noah.inter-cloud-thi.de` | `raghad.inter-cloud-thi.de` |
+| `4.185.66.130` | `4.185.66.130` | `4.185.211.9` |
+| `noah` | `noah` | `raghad` |
 
 ---
 
@@ -113,7 +113,7 @@ sudo tee /opt/spire/server/server.conf > /dev/null <<'EOF'
 server {
   bind_address = "0.0.0.0"
   bind_port = "8081"
-  trust_domain = "<DOMAIN>"
+  trust_domain = "noah.inter-cloud-thi.de"
   data_dir = "/tmp/spire-server/data"
   log_level = "INFO"
 
@@ -144,7 +144,7 @@ plugins {
 EOF
 ```
 
-> **Replace `<DOMAIN>`** with your trust domain (e.g. `noah.inter-cloud-thi.de`).
+> **Replace `noah.inter-cloud-thi.de`** with your trust domain (e.g. `noah.inter-cloud-thi.de`).
 
 ## 3. Configure SPIRE Agent
 
@@ -156,7 +156,7 @@ agent {
   server_address = "127.0.0.1"
   server_port = "8081"
   socket_path = "/tmp/spire-agent/public/api.sock"
-  trust_domain = "<DOMAIN>"
+  trust_domain = "noah.inter-cloud-thi.de"
   trust_bundle_path = "/tmp/bootstrap-bundle.crt"
 }
 
@@ -176,7 +176,7 @@ plugins {
 EOF
 ```
 
-> **Replace `<DOMAIN>`** with the same trust domain used in the server config.
+> **Replace `noah.inter-cloud-thi.de`** with the same trust domain used in the server config.
 
 ## 4. Start SPIRE Server
 
@@ -205,7 +205,7 @@ sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
 cd ~/spire-1.13.3
 
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   | grep Token | awk '{print $2}')
 echo "Token: $TOKEN"
 
@@ -231,8 +231,8 @@ sudo ./bin/spire-server entry show
 
 # Create workload entry — single trust domain only
 sudo ./bin/spire-server entry create \
-  -spiffeID spiffe://<DOMAIN>/game-server-<NAME> \
-  -parentID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   -selector unix:uid:$(id -u)
 
 # Verify — should NOT show FederatesWith
@@ -254,7 +254,7 @@ sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -298,8 +298,8 @@ Both players complete steps 1–7 above with **their own trust domains**, then s
 ```bash
 ./rps-game \
   --bind 0.0.0.0:9002 \
-  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
-  --public-url https://<IP>:9002 \
+  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  --public-url https://4.185.66.130:9002 \
   --mtls --cert-dir ~/certs \
   --sign-moves
 ```
@@ -311,8 +311,8 @@ docker run -it --rm \
   --network host \
   -v ~/certs:/app/certs:ro \
   -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
-  -e RPS_PUBLIC_URL=https://<IP>:9002 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
   -e RPS_MTLS=1 \
   -e RPS_SIGN_MOVES=1 \
   ghcr.io/npaulat99/rock-paper-scissors:latest
@@ -344,7 +344,7 @@ rps>
 You can test challenging your teammate on the **same trust domain**:
 
 ```text
-rps> challenge https://<PEER_IP>:9002 spiffe://<DOMAIN>/game-server-<PEER_NAME>
+rps> challenge https://4.185.211.9:9002 spiffe://noah.inter-cloud-thi.de/game-server-raghad
 Round 1 — choose (r)ock, (p)aper, (s)cissors: r
 ```
 
@@ -364,7 +364,7 @@ rps> scores
 
 If ACME is configured (see Bonus section), the scoreboard is also publicly accessible:
 ```bash
-curl https://<DOMAIN>/v1/rps/scores | jq
+curl https://noah.inter-cloud-thi.de/v1/rps/scores | jq
 ```
 
 **At this point show:**
@@ -395,7 +395,7 @@ cat /tmp/my.bundle   # send this JSON to the peer
 
 ```bash
 cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set \
-  -format spiffe -id spiffe://<PEER_DOMAIN>
+  -format spiffe -id spiffe://raghad.inter-cloud-thi.de
 <PASTE PEER'S FULL JSON BUNDLE HERE>
 BUNDLE_EOF
 
@@ -411,20 +411,20 @@ Both SPIRE servers expose their bundle on port **8443** (configured in server.co
 cd ~/spire-1.13.3
 
 # Fetch the peer's bundle directly
-curl -sk https://<PEER_IP>:8443 > /tmp/peer.bundle
+curl -sk https://4.185.211.9:8443 > /tmp/peer.bundle
 
 # Import it
 sudo ./bin/spire-server bundle set \
   -format spiffe \
-  -id spiffe://<PEER_DOMAIN> \
+  -id spiffe://raghad.inter-cloud-thi.de \
   -path /tmp/peer.bundle
 
 # Set up automatic refresh
 sudo ./bin/spire-server federation create \
-  -trustDomain <PEER_DOMAIN> \
-  -bundleEndpointURL https://<PEER_IP>:8443 \
+  -trustDomain raghad.inter-cloud-thi.de \
+  -bundleEndpointURL https://4.185.211.9:8443 \
   -bundleEndpointProfile https_spiffe \
-  -endpointSpiffeID spiffe://<PEER_DOMAIN>/spire/server \
+  -endpointSpiffeID spiffe://raghad.inter-cloud-thi.de/spire/server \
   -trustDomainBundlePath /tmp/peer.bundle \
   -trustDomainBundleFormat spiffe
 ```
@@ -460,10 +460,10 @@ sudo ./bin/spire-server entry delete -entryID <OLD_ENTRY_ID>
 
 # Re-create WITH federation
 sudo ./bin/spire-server entry create \
-  -spiffeID spiffe://<DOMAIN>/game-server-<NAME> \
-  -parentID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   -selector unix:uid:$(id -u) \
-  -federatesWith spiffe://<PEER_DOMAIN>
+  -federatesWith spiffe://raghad.inter-cloud-thi.de
 ```
 
 > For multiple peers, add multiple `-federatesWith` flags:
@@ -485,7 +485,7 @@ sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -517,8 +517,8 @@ Restart the game (it loads certs once at startup):
 ```bash
 ./rps-game \
   --bind 0.0.0.0:9002 \
-  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
-  --public-url https://<IP>:9002 \
+  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  --public-url https://4.185.66.130:9002 \
   --mtls --cert-dir ~/certs \
   --sign-moves
 ```
@@ -526,7 +526,7 @@ Restart the game (it loads certs once at startup):
 ### Challenge Federated Peer
 
 ```text
-rps> challenge https://<PEER_IP>:9002 spiffe://<PEER_DOMAIN>/game-server-<PEER_NAME>
+rps> challenge https://4.185.211.9:9002 spiffe://raghad.inter-cloud-thi.de/game-server-raghad
 Round 1 — choose (r)ock, (p)aper, (s)cissors: r
 ```
 
@@ -544,7 +544,7 @@ rps> scores
 
 If ACME is configured, the scoreboard is publicly accessible:
 ```bash
-curl https://<DOMAIN>/v1/rps/scores | jq
+curl https://noah.inter-cloud-thi.de/v1/rps/scores | jq
 ```
 
 **Example (Noah's public scoreboard):**
@@ -574,8 +574,8 @@ The game auto-detects the available signing method:
 
 ```bash
 ./rps-game --bind 0.0.0.0:9002 --mtls --cert-dir ~/certs \
-  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
-  --public-url https://<IP>:9002 \
+  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  --public-url https://4.185.66.130:9002 \
   --sign-moves
 ```
 
@@ -585,8 +585,8 @@ The game auto-detects the available signing method:
 docker run -it --rm --network host \
   -v ~/certs:/app/certs:ro \
   -e RPS_SIGN_MOVES=1 \
-  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
-  -e RPS_PUBLIC_URL=https://<IP>:9002 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
   -e RPS_MTLS=1 \
   ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
@@ -616,14 +616,14 @@ sudo apt install -y certbot
 
 # Standalone mode (stop anything on port 80 first)
 sudo certbot certonly --standalone \
-  -d <DOMAIN> \
+  -d noah.inter-cloud-thi.de \
   --agree-tos --no-eff-email \
-  -m <EMAIL>
+  -m noah.paul@thi.de
 
 # Copy to user-readable location
 mkdir -p ~/acme-certs
-sudo cp /etc/letsencrypt/live/<DOMAIN>/fullchain.pem ~/acme-certs/
-sudo cp /etc/letsencrypt/live/<DOMAIN>/privkey.pem ~/acme-certs/
+sudo cp /etc/letsencrypt/live/noah.inter-cloud-thi.de/fullchain.pem ~/acme-certs/
+sudo cp /etc/letsencrypt/live/noah.inter-cloud-thi.de/privkey.pem ~/acme-certs/
 sudo chown $USER:$USER ~/acme-certs/*.pem
 ```
 
@@ -633,9 +633,9 @@ sudo chown $USER:$USER ~/acme-certs/*.pem
 
 ```bash
 sudo ./rps-game \
-  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
+  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
   --mtls --cert-dir ~/certs \
-  --public-url https://<IP>:9002 \
+  --public-url https://4.185.66.130:9002 \
   --acme-cert ~/acme-certs/fullchain.pem \
   --acme-key ~/acme-certs/privkey.pem \
   --acme-bind 0.0.0.0:443 \
@@ -649,8 +649,8 @@ docker run -it --rm --network host \
   -v ~/certs:/app/certs:ro \
   -v ~/acme-certs:/app/acme-certs:ro \
   -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
-  -e RPS_PUBLIC_URL=https://<IP>:9002 \
+  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
   -e RPS_MTLS=1 \
   -e RPS_ACME_CERT=/app/acme-certs/fullchain.pem \
   -e RPS_ACME_KEY=/app/acme-certs/privkey.pem \
@@ -659,7 +659,7 @@ docker run -it --rm --network host \
   ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
 
-Public scoreboard URL: `https://<DOMAIN>/v1/rps/scores`
+Public scoreboard URL: `https://noah.inter-cloud-thi.de/v1/rps/scores`
 
 ### ACME Troubleshooting
 
@@ -673,7 +673,7 @@ Public scoreboard URL: `https://<DOMAIN>/v1/rps/scores`
 ### Prerequisites
 
 - **Azure NSG**: Inbound TCP **80** (certbot) and **443** (scoreboard)
-- **DNS**: A-record for `<DOMAIN>` pointing to `<IP>`
+- **DNS**: A-record for `noah.inter-cloud-thi.de` pointing to `4.185.66.130`
 
 ---
 
@@ -690,7 +690,7 @@ sleep 3
 sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -710,7 +710,7 @@ sudo ./bin/spire-server entry delete -entryID <THE_ID>
 ## Timeout connecting to peer
 
 1. Check peer's server: `sudo ss -tlnp | grep 9002`
-2. Test TCP: `nc -zv -w 5 <PEER_IP> 9002`
+2. Test TCP: `nc -zv -w 5 4.185.211.9 9002`
 3. Open port 9002 TCP in **Azure NSG**
 4. Local firewall: `sudo ufw allow 9002/tcp`
 
@@ -731,7 +731,7 @@ cat /tmp/my.bundle  # send to peer
 
 # Import peer's fresh bundle
 cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set \
-  -format spiffe -id spiffe://<PEER_DOMAIN>
+  -format spiffe -id spiffe://raghad.inter-cloud-thi.de
 <PASTE FRESH BUNDLE HERE>
 BUNDLE_EOF
 ```
@@ -744,7 +744,7 @@ sudo pkill -f spire-agent; sleep 3
 sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://<DOMAIN>/agent/myagent \
+  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -819,3 +819,4 @@ docker stop $(docker ps -q --filter ancestor=ghcr.io/npaulat99/rock-paper-scisso
 sudo rm -rf /tmp/spire-server /tmp/spire-agent /tmp/bootstrap-bundle.crt
 sudo rm -f /tmp/spire-server.log /tmp/spire-agent.log
 ```
+
