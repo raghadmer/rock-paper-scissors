@@ -58,19 +58,42 @@ python src/app/cli.py --help
 
 ## Supply Chain Security
 
-✅ **Phase 1** — Trivy scanning (source, Docker, IaC, image)  
-✅ **Phase 2** — SLSA provenance, SBOM, vulnerability attestations  
-✅ **Phase 3** — Cosign keyless signing (GitHub OIDC)  
-✅ **Phase 4** — Automated GitHub Actions CI/CD pipeline  
-✅ **Bonus** — Binary built in CI, downloadable from pipeline, signature verification  
+✅ **Phase 1** — Trivy scanning (source, Docker, IaC, image)
+✅ **Phase 2** — SLSA provenance, SBOM, vulnerability attestations
+✅ **Phase 3** — Cosign keyless signing (GitHub OIDC)
+✅ **Phase 4** — Automated GitHub Actions CI/CD pipeline
+✅ **Bonus** — Binary built in CI, downloadable from pipeline, signature verification
 
 ---
 
-# Setup Guide for Noah
+## Demo Checklist
 
-**Trust Domain:** `noah.inter-cloud-thi.de`  
-**Public IP:** `4.185.66.130`  
-**SPIFFE ID:** `spiffe://noah.inter-cloud-thi.de/game-server-noah`  
+The live demo shows these four steps:
+
+| Nr. | Step | Points | What to Show |
+|------|------------|--------|--------------|
+| 1 | Single Trust Domain | 7 | SPIRE running, game starts with mTLS, SPIFFE ID in banner |
+| 2 | Visible SPIFFE IDs | 5 | SPIFFE URI in startup + peer identity on challenge |
+| 3 | Score Tracking | 3 | Play a round, run `scores` command |
+| 4 | Federated Reconfiguration | 7 | Import peer bundle, re-register entry, play cross-domain |
+
+**Bonus items** (show if time permits): ACME scoreboard, move signing, supply chain verification.
+
+---
+
+## Reference Values
+
+Replace placeholders in commands below with your own values:
+
+| Placeholder | Noah | Raghad |
+|-------------|------|--------|
+| `<DOMAIN>` | `noah.inter-cloud-thi.de` | `raghad.inter-cloud-thi.de` |
+| `<IP>` | `4.185.66.130` | `4.185.211.9` |
+| `<NAME>` | `noah` | `raghad` |
+
+---
+
+# SPIRE Setup (Both Players)
 
 ## 1. Install SPIRE
 
@@ -90,7 +113,7 @@ sudo tee /opt/spire/server/server.conf > /dev/null <<'EOF'
 server {
   bind_address = "0.0.0.0"
   bind_port = "8081"
-  trust_domain = "noah.inter-cloud-thi.de"
+  trust_domain = "<DOMAIN>"
   data_dir = "/tmp/spire-server/data"
   log_level = "INFO"
 
@@ -121,6 +144,8 @@ plugins {
 EOF
 ```
 
+> **Replace `<DOMAIN>`** with your trust domain (e.g. `noah.inter-cloud-thi.de`).
+
 ## 3. Configure SPIRE Agent
 
 ```bash
@@ -131,7 +156,7 @@ agent {
   server_address = "127.0.0.1"
   server_port = "8081"
   socket_path = "/tmp/spire-agent/public/api.sock"
-  trust_domain = "noah.inter-cloud-thi.de"
+  trust_domain = "<DOMAIN>"
   trust_bundle_path = "/tmp/bootstrap-bundle.crt"
 }
 
@@ -151,30 +176,26 @@ plugins {
 EOF
 ```
 
+> **Replace `<DOMAIN>`** with the same trust domain used in the server config.
+
 ## 4. Start SPIRE Server
 
 ```bash
 cd ~/spire-1.13.3
 
-# Kill any existing processes
 sudo pkill -f spire-server || true
 sudo pkill -f spire-agent || true
 sleep 2
 
-# Clean up
 sudo rm -f /tmp/spire-server/private/api.sock
 sudo rm -f /tmp/spire-agent/public/api.sock
 sudo mkdir -p /tmp/spire-server/data
 sudo mkdir -p /tmp/spire-agent/data /tmp/spire-agent/public
 
-# Start server
 sudo nohup ./bin/spire-server run -config /opt/spire/server/server.conf > /tmp/spire-server.log 2>&1 &
 sleep 5
 
-# Verify
 sudo ./bin/spire-server healthcheck
-
-# Save bootstrap bundle for agent
 sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
 ```
 
@@ -184,7 +205,7 @@ sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
 cd ~/spire-1.13.3
 
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
+  -spiffeID spiffe://<DOMAIN>/agent/myagent \
   | grep Token | awk '{print $2}')
 echo "Token: $TOKEN"
 
@@ -193,152 +214,92 @@ sudo nohup ./bin/spire-agent run \
   -joinToken $TOKEN > /tmp/spire-agent.log 2>&1 &
 sleep 5
 
-# Verify
 ls -la /tmp/spire-agent/public/api.sock
 ```
 
-## 6. Export Your Trust Bundle & Import Raghad's Trust Bundle
+## 6. Register Workload (Single Domain — No Federation Yet)
 
-> **IMPORTANT:** The peer's trust bundle must be imported **before** you can
-> register a workload entry with `-federatesWith`. Otherwise SPIRE will
-> reject the entry with *"unable to find federated bundle"*.
-
-First, export your own bundle to share with Raghad:
+> **Demo Phase 1**: Register the workload **without** `-federatesWith`.
+> Federation is added later to demonstrate the reconfiguration step.
 
 ```bash
 cd ~/spire-1.13.3
 
-# Export your trust bundle in SPIFFE format — send this to Raghad
-sudo ./bin/spire-server bundle show -format spiffe
-```
-
-Copy the JSON output and send it to Raghad. Then import Raghad's trust
-bundle by pasting the JSON she sends you:
-
-```bash
-cd ~/spire-1.13.3
-
-cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set -format spiffe -id spiffe://raghad.inter-cloud-thi.de
-<PASTE RAGHAD'S FULL JSON BUNDLE HERE>
-BUNDLE_EOF
-
-# Verify both bundles are listed
-sudo ./bin/spire-server bundle list
-# Should list: noah.inter-cloud-thi.de AND raghad.inter-cloud-thi.de
-```
-
-> **To get a fresh bundle from Raghad:** she runs
-> `sudo ./bin/spire-server bundle show -format spiffe` and sends the output.
-
-## 7. Register Workload with Federation
-
-Now that Raghad's bundle is imported, you can create the workload entry
-with `-federatesWith`.
-
-First, clean up any stale entries from previous runs:
-
-```bash
-cd ~/spire-1.13.3
-
-# Show all entries and delete any stale ones
+# Clean up any stale entries
 sudo ./bin/spire-server entry show
+# sudo ./bin/spire-server entry delete -entryID <ID>  # repeat for each
 
-# Delete each old entry (replace with actual IDs shown above)
-# sudo ./bin/spire-server entry delete -entryID <ENTRY_ID>
-# Repeat for every entry listed
-```
-
-Then create the workload entry:
-
-```bash
+# Create workload entry — single trust domain only
 sudo ./bin/spire-server entry create \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
-  -selector unix:uid:$(id -u) \
-  -federatesWith spiffe://raghad.inter-cloud-thi.de
+  -spiffeID spiffe://<DOMAIN>/game-server-<NAME> \
+  -parentID spiffe://<DOMAIN>/agent/myagent \
+  -selector unix:uid:$(id -u)
 
-# Verify — should show FederatesWith: raghad.inter-cloud-thi.de
+# Verify — should NOT show FederatesWith
 sudo ./bin/spire-server entry show
 ```
 
-## 8. Fetch Certificates (with Combined Bundle)
-
-After importing Raghad's bundle AND registering with `-federatesWith`,
-restart the agent so it picks up the new entry, then fetch certs.
+## 7. Fetch Certificates
 
 ```bash
 cd ~/spire-1.13.3
 
-# Restart agent with a fresh join token
-sudo pkill -f spire-agent
-sleep 3
-sudo rm -rf /tmp/spire-agent/data/*
-sudo rm -f /tmp/spire-agent/public/api.sock
-TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
-  | grep Token | awk '{print $2}')
-sudo nohup ./bin/spire-agent run \
-  -config /opt/spire/agent/agent.conf \
-  -joinToken $TOKEN > /tmp/spire-agent.log 2>&1 &
-sleep 30
-
-# Verify agent picked up the entry — look for "Creating X509-SVID" for game-server-noah
-sudo tail -20 /tmp/spire-agent.log
-
-# Fetch certs
-mkdir -p ~/certs
-rm -f ~/certs/*
+mkdir -p ~/certs && rm -f ~/certs/*
 SPIFFE_ENDPOINT_SOCKET=/tmp/spire-agent/public/api.sock \
-  ~/spire-1.13.3/bin/spire-agent api fetch x509 -write ~/certs/
+  ./bin/spire-agent api fetch x509 -write ~/certs/
 
-# Verify the fetch succeeded — you must see these 4 files:
 ls ~/certs/
-# Expected: svid.0.pem  svid.0.key  bundle.0.pem  federated_bundle.0.0.pem
-#
-# If you see "no identity issued" or files are missing:
-#   1. Check entry exists: sudo ./bin/spire-server entry show
-#   2. Entry must have SPIFFE ID game-server-noah (not agent/myagent)
-#   3. Entry selector must be unix:uid:$(id -u)
-#   4. Restart agent again with a new token (repeat above)
+# Expected: svid.0.pem  svid.0.key  bundle.0.pem
+# (no federated_bundle yet — single domain only)
 
-# IMPORTANT: Combine both CAs into one bundle file
-cat ~/certs/bundle.0.pem ~/certs/federated_bundle.0.0.pem > ~/certs/svid_bundle.pem
+# Prepare cert files for the game
+cp ~/certs/bundle.0.pem ~/certs/svid_bundle.pem
 mv ~/certs/svid.0.pem ~/certs/svid.pem
 mv ~/certs/svid.0.key ~/certs/svid_key.pem
 
-# Verify 2 CAs in combined bundle
+# Should show 1 CA (your own)
 grep -c "BEGIN CERTIFICATE" ~/certs/svid_bundle.pem
-# Must output: 2
 ```
 
-## 9. Run the Game
+> If you see **"no identity issued"**, the agent hasn't synced yet.
+> Wait 30 seconds, or restart the agent with a new join token (repeat step 5).
 
-### Option A: Using the signed binary
+---
+
+# Demo Phase 1: Single Trust Domain
+
+Both players complete steps 1–7 above with **their own trust domains**, then start the game.
+
+## Run the Game
+
+### Option A: Signed Binary
 
 ```bash
-cd ~/temp
 ./rps-game \
   --bind 0.0.0.0:9002 \
-  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  --public-url https://4.185.66.130:9002 \
-  --mtls \
-  --cert-dir ~/certs
+  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
+  --public-url https://<IP>:9002 \
+  --mtls --cert-dir ~/certs \
+  --sign-moves
 ```
 
-### Option B: Using Docker
+### Option B: Docker
 
 ```bash
 docker run -it --rm \
   --network host \
   -v ~/certs:/app/certs:ro \
   -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
+  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
+  -e RPS_PUBLIC_URL=https://<IP>:9002 \
   -e RPS_MTLS=1 \
+  -e RPS_SIGN_MOVES=1 \
   ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
 
-You'll see an interactive prompt:
+### What the Demo Shows
+
+The startup banner displays your SPIFFE identity, the mTLS status, and move signing:
 
 ```text
 ============================================================
@@ -346,6 +307,7 @@ You'll see an interactive prompt:
   SPIFFE ID : spiffe://noah.inter-cloud-thi.de/game-server-noah
   Listening : https://0.0.0.0:9002
   Scoreboard: https://0.0.0.0:9002/v1/rps/scores
+  Signing   : ssh
 ============================================================
 
 Commands:
@@ -356,183 +318,75 @@ Commands:
 rps>
 ```
 
-### Challenge Raghad
+**At this point show:**
+- ✅ **Single trust domain** — SPIRE is running, game uses mTLS (7 pts)
+- ✅ **Visible SPIFFE IDs** — identity in banner (5 pts)
+- ✅ **Score tracking** — type `scores` to show the scoreboard (3 pts)
 
-```text
-rps> challenge https://4.185.211.9:9002 spiffe://raghad.inter-cloud-thi.de/game-server-raghad
-Round 1 — choose (r)ock, (p)aper, (s)cissors: s
-Round 1: challenge sent, waiting for response...
-```
-
-### View Scores
-
-```text
-rps> scores
-```
+> **Note:** Challenging a peer on a *different* trust domain will fail with `UNKNOWN_CA` — this is expected. Federation is needed to cross trust domains.
 
 ---
 
-# Federating with Other Teams
+# Demo Phase 2: Federated Reconfiguration
 
-To play against students **outside** your team (e.g., Sven), you have two
-options for exchanging trust bundles. Both require updating your workload
-entry to include `-federatesWith` for the new peer and re-fetching certs.
+This section shows the **live reconfiguration** from single-domain to federated cross-domain play.
 
-## Option A: Manual Bundle Exchange (`bundle set`)
+Pick one of the three options to exchange bundles with a peer, then update
+your workload entry and re-fetch certificates.
 
-No server config changes needed — just paste bundles back and forth.
+## Option A: Manual Bundle Exchange
 
 ### 1. Export your bundle and send it to the peer
 
 ```bash
 cd ~/spire-1.13.3
-sudo ./bin/spire-server bundle show -format spiffe > /tmp/noah.bundle
-cat /tmp/noah.bundle   # send this JSON to the peer
-```
-
-**Command for the peer (e.g., Sven) to import your bundle:**
-
-```bash
-# Sven runs this on his VM:
-cat <<'BUNDLE_EOF' | sudo /opt/spire/bin/spire-server bundle set \
-  -format spiffe \
-  -id spiffe://noah.inter-cloud-thi.de
-<PASTE NOAH'S FULL JSON BUNDLE HERE>
-BUNDLE_EOF
+sudo ./bin/spire-server bundle show -format spiffe > /tmp/my.bundle
+cat /tmp/my.bundle   # send this JSON to the peer
 ```
 
 ### 2. Import the peer's bundle
 
-Ask the peer for their bundle output, then:
-
 ```bash
-cd ~/spire-1.13.3
-
-cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set -format spiffe -id spiffe://sven.inter-cloud-thi.de
-<PASTE SVEN'S FULL JSON BUNDLE HERE>
+cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set \
+  -format spiffe -id spiffe://<PEER_DOMAIN>
+<PASTE PEER'S FULL JSON BUNDLE HERE>
 BUNDLE_EOF
 
-# Verify
 sudo ./bin/spire-server bundle list
+# Should list BOTH trust domains
 ```
 
-### 3. Update workload entry to federate with the new peer
+## Option B: Bundle Endpoint (Automatic Fetch)
+
+Both SPIRE servers expose their bundle on port **8443** (configured in server.conf).
 
 ```bash
 cd ~/spire-1.13.3
 
-# Delete old entry
-sudo ./bin/spire-server entry show
-sudo ./bin/spire-server entry delete -entryID <OLD_ENTRY_ID>
+# Fetch the peer's bundle directly
+curl -sk https://<PEER_IP>:8443 > /tmp/peer.bundle
 
-# Re-create with ALL peers listed
-sudo ./bin/spire-server entry create \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -parentID spiffe://noah.inter-cloud-thi.de/agent/myagent \
-  -selector unix:uid:$(id -u) \
-  -federatesWith spiffe://raghad.inter-cloud-thi.de \
-  -federatesWith spiffe://sven.inter-cloud-thi.de
-```
+# Import it
+sudo ./bin/spire-server bundle set \
+  -format spiffe \
+  -id spiffe://<PEER_DOMAIN> \
+  -path /tmp/peer.bundle
 
-### 4. Re-fetch certificates
-
-```bash
-cd ~/spire-1.13.3
-sudo pkill -f spire-agent
-sleep 3
-sudo rm -rf /tmp/spire-agent/data/*
-sudo rm -f /tmp/spire-agent/public/api.sock
-TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
-  | grep Token | awk '{print $2}')
-sudo nohup ./bin/spire-agent run \
-  -config /opt/spire/agent/agent.conf \
-  -joinToken $TOKEN > /tmp/spire-agent.log 2>&1 &
-sleep 30
-
-mkdir -p ~/certs && rm -f ~/certs/*
-SPIFFE_ENDPOINT_SOCKET=/tmp/spire-agent/public/api.sock \
-  ~/spire-1.13.3/bin/spire-agent api fetch x509 -write ~/certs/
-
-# Combine ALL CA bundles (your own + all federated)
-cat ~/certs/bundle.0.pem ~/certs/federated_bundle.*.pem > ~/certs/svid_bundle.pem
-mv ~/certs/svid.0.pem ~/certs/svid.pem
-mv ~/certs/svid.0.key ~/certs/svid_key.pem
-
-# Verify — should show 1 + N (one per federated peer)
-grep -c "BEGIN CERTIFICATE" ~/certs/svid_bundle.pem
-```
-
-### 5. Challenge the new peer
-
-```text
-rps> challenge https://4.185.210.163:9002 spiffe://sven.inter-cloud-thi.de/game-server-sven
-```
-
-## Option B: Automatic Bundle Endpoint (federation create)
-
-This uses SPIRE's built-in bundle endpoint on port **8443** so peers can
-automatically fetch your trust bundle over HTTPS. The `federation` block
-is already included in the server.conf above.
-
-### 1. Verify the bundle endpoint is running
-
-After starting your SPIRE server, confirm port 8443 is listening:
-
-```bash
-sudo ss -tlnp | grep 8443
-curl -k https://localhost:8443
-```
-
-> **NSG:** Make sure Azure NSG allows **inbound TCP 8443** on your VM.
-
-### 2. Peer creates federation relationship
-
-The peer (e.g., Sven) runs on their VM:
-
-```bash
-# First, delete any existing federation for this trust domain
-sudo /opt/spire/bin/spire-server federation delete \
-  -id spiffe://noah.inter-cloud-thi.de || true
-
-# Create the federation relationship
-sudo /opt/spire/bin/spire-server federation create \
-  -trustDomain noah.inter-cloud-thi.de \
-  -bundleEndpointURL https://4.185.66.130:8443 \
-  -bundleEndpointProfile https_spiffe \
-  -endpointSpiffeID spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -trustDomainBundlePath /tmp/noah.bundle \
-  -trustDomainBundleFormat spiffe
-```
-
-> **"UNIQUE constraint" error?** The peer already has a federation for
-> your trust domain. They need to `federation delete` first (shown above),
-> or use `federation update` instead of `federation create`.
-
-### 3. You do the same for the peer
-
-```bash
-cd ~/spire-1.13.3
-
-# Get the peer's bundle first
-curl -k https://4.185.210.163:8443 > /tmp/sven.bundle
-
+# Set up automatic refresh
 sudo ./bin/spire-server federation create \
-  -trustDomain sven.inter-cloud-thi.de \
-  -bundleEndpointURL https://4.185.210.163:8443 \
+  -trustDomain <PEER_DOMAIN> \
+  -bundleEndpointURL https://<PEER_IP>:8443 \
   -bundleEndpointProfile https_spiffe \
-  -endpointSpiffeID spiffe://sven.inter-cloud-thi.de/game-server-sven \
-  -trustDomainBundlePath /tmp/sven.bundle \
+  -endpointSpiffeID spiffe://<PEER_DOMAIN>/spire/server \
+  -trustDomainBundlePath /tmp/peer.bundle \
   -trustDomainBundleFormat spiffe
 ```
 
-Then continue with steps 3–5 from Option A (update workload entry, re-fetch certs, challenge).
+> **NSG:** Ensure Azure NSG allows inbound TCP **8443** on both VMs.
 
 ## Option C: Fully Automated Script
 
-If both sides have the bundle endpoint running on port 8443, use the
-automation script that fetches, imports, and creates the federation in
-one command:
+If both sides have the bundle endpoint running:
 
 ```bash
 chmod +x scripts/demo/setup-federation-auto.sh
@@ -544,381 +398,217 @@ chmod +x scripts/demo/setup-federation-auto.sh
 ./scripts/demo/setup-federation-auto.sh sven.inter-cloud-thi.de 4.185.210.163
 ```
 
-The script:
-1. `curl -sk` fetches the peer's bundle from `https://PEER_IP:8443`
-2. `spire-server bundle set` imports it
-3. `spire-server federation create` sets up automatic background refresh
+The script auto-generates `~/spire.conf` if it doesn't exist (prompts for trust domain and player name), then fetches, imports, and creates the federation in one command.
 
-After running, update the workload entry (step 3) and re-fetch certs (step 4) as above.
+## Re-register Workload WITH Federation
 
-> **First time?** Create `~/spire-lab.conf` from the example:
+After importing the peer's bundle, delete the old entry and re-create with `-federatesWith`:
+
+```bash
+cd ~/spire-1.13.3
+
+# Delete old entry
+sudo ./bin/spire-server entry show
+sudo ./bin/spire-server entry delete -entryID <OLD_ENTRY_ID>
+
+# Re-create WITH federation
+sudo ./bin/spire-server entry create \
+  -spiffeID spiffe://<DOMAIN>/game-server-<NAME> \
+  -parentID spiffe://<DOMAIN>/agent/myagent \
+  -selector unix:uid:$(id -u) \
+  -federatesWith spiffe://<PEER_DOMAIN>
+```
+
+> For multiple peers, add multiple `-federatesWith` flags:
 > ```bash
-> cp scripts/demo/spire-lab.conf.example ~/spire-lab.conf
-> nano ~/spire-lab.conf   # set your TRUST_DOMAIN
+> -federatesWith spiffe://raghad.inter-cloud-thi.de \
+> -federatesWith spiffe://sven.inter-cloud-thi.de
 > ```
 
----
+## Re-fetch Certificates
 
-# Setup Guide for Raghad
-
-**Trust Domain:** `raghad.inter-cloud-thi.de`  
-**Public IP:** `4.185.211.9`  
-**SPIFFE ID:** `spiffe://raghad.inter-cloud-thi.de/game-server-raghad`  
-
-## 1. Install SPIRE
-
-```bash
-cd ~
-wget https://github.com/spiffe/spire/releases/download/v1.13.3/spire-1.13.3-linux-amd64-musl.tar.gz
-tar -xzf spire-1.13.3-linux-amd64-musl.tar.gz
-cd spire-1.13.3
-sudo mkdir -p /opt/spire/server /opt/spire/agent
-sudo mkdir -p /tmp/spire-server /tmp/spire-agent
-```
-
-## 2. Configure SPIRE Server
-
-```bash
-sudo tee /opt/spire/server/server.conf > /dev/null <<'EOF'
-server {
-  bind_address = "0.0.0.0"
-  bind_port = "8081"
-  trust_domain = "raghad.inter-cloud-thi.de"
-  data_dir = "/tmp/spire-server/data"
-  log_level = "INFO"
-
-  federation {
-    bundle_endpoint {
-      address = "0.0.0.0"
-      port = 8443
-    }
-  }
-}
-
-plugins {
-  DataStore "sql" {
-    plugin_data {
-      database_type = "sqlite3"
-      connection_string = "/tmp/spire-server/data/datastore.sqlite3"
-    }
-  }
-  NodeAttestor "join_token" {
-    plugin_data {}
-  }
-  KeyManager "disk" {
-    plugin_data {
-      keys_path = "/tmp/spire-server/data/keys.json"
-    }
-  }
-}
-EOF
-```
-
-## 3. Configure SPIRE Agent
-
-```bash
-sudo tee /opt/spire/agent/agent.conf > /dev/null <<'EOF'
-agent {
-  data_dir = "/tmp/spire-agent/data"
-  log_level = "INFO"
-  server_address = "127.0.0.1"
-  server_port = "8081"
-  socket_path = "/tmp/spire-agent/public/api.sock"
-  trust_domain = "raghad.inter-cloud-thi.de"
-  trust_bundle_path = "/tmp/bootstrap-bundle.crt"
-}
-
-plugins {
-  NodeAttestor "join_token" {
-    plugin_data {}
-  }
-  KeyManager "disk" {
-    plugin_data {
-      directory = "/tmp/spire-agent/data"
-    }
-  }
-  WorkloadAttestor "unix" {
-    plugin_data {}
-  }
-}
-EOF
-```
-
-## 4. Start SPIRE Server
+Restart the agent so it picks up the new federated entry, then re-fetch:
 
 ```bash
 cd ~/spire-1.13.3
 
-sudo pkill -f spire-server || true
-sudo pkill -f spire-agent || true
-sleep 2
-sudo rm -f /tmp/spire-server/private/api.sock
-sudo rm -f /tmp/spire-agent/public/api.sock
-sudo mkdir -p /tmp/spire-server/data
-sudo mkdir -p /tmp/spire-agent/data /tmp/spire-agent/public
-
-sudo nohup ./bin/spire-server run -config /opt/spire/server/server.conf > /tmp/spire-server.log 2>&1 &
-sleep 5
-
-sudo ./bin/spire-server healthcheck
-sudo ./bin/spire-server bundle show > /tmp/bootstrap-bundle.crt
-```
-
-## 5. Start SPIRE Agent
-
-```bash
-cd ~/spire-1.13.3
-
-TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://raghad.inter-cloud-thi.de/agent/myagent \
-  | grep Token | awk '{print $2}')
-echo "Token: $TOKEN"
-
-sudo nohup ./bin/spire-agent run \
-  -config /opt/spire/agent/agent.conf \
-  -joinToken $TOKEN > /tmp/spire-agent.log 2>&1 &
-sleep 5
-
-ls -la /tmp/spire-agent/public/api.sock
-```
-
-## 6. Export Your Trust Bundle & Import Noah's Trust Bundle
-
-> **IMPORTANT:** The peer's trust bundle must be imported **before** you can
-> register a workload entry with `-federatesWith`. Otherwise SPIRE will
-> reject the entry with *"unable to find federated bundle"*.
-
-First, export your own bundle to share with Noah:
-
-```bash
-cd ~/spire-1.13.3
-
-# Export your trust bundle in SPIFFE format — send this to Noah
-sudo ./bin/spire-server bundle show -format spiffe
-```
-
-Copy the JSON output and send it to Noah. Then import Noah's trust
-bundle by pasting the JSON he sends you:
-
-```bash
-cd ~/spire-1.13.3
-
-cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set -format spiffe -id spiffe://noah.inter-cloud-thi.de
-<PASTE NOAH'S FULL JSON BUNDLE HERE>
-BUNDLE_EOF
-
-# Verify both bundles are listed
-sudo ./bin/spire-server bundle list
-# Should list: raghad.inter-cloud-thi.de AND noah.inter-cloud-thi.de
-```
-
-> **To get a fresh bundle from Noah:** he runs
-> `sudo ./bin/spire-server bundle show -format spiffe` and sends the output.
-
-## 7. Register Workload with Federation
-
-Now that Noah's bundle is imported, you can create the workload entry
-with `-federatesWith`.
-
-First, clean up any stale entries from previous runs:
-
-```bash
-cd ~/spire-1.13.3
-
-# Show all entries and delete any stale ones
-sudo ./bin/spire-server entry show
-
-# Delete each old entry (replace with actual IDs shown above)
-# sudo ./bin/spire-server entry delete -entryID <ENTRY_ID>
-# Repeat for every entry listed
-```
-
-Then create the workload entry:
-
-```bash
-sudo ./bin/spire-server entry create \
-  -spiffeID spiffe://raghad.inter-cloud-thi.de/game-server-raghad \
-  -parentID spiffe://raghad.inter-cloud-thi.de/agent/myagent \
-  -selector unix:uid:$(id -u) \
-  -federatesWith spiffe://noah.inter-cloud-thi.de
-
-# Verify — should show FederatesWith: noah.inter-cloud-thi.de
-sudo ./bin/spire-server entry show
-```
-
-## 8. Fetch Certificates (with Combined Bundle)
-
-After importing Noah's bundle AND registering with `-federatesWith`,
-restart the agent so it picks up the new entry, then fetch certs.
-
-```bash
-cd ~/spire-1.13.3
-
-# Restart agent with a fresh join token
 sudo pkill -f spire-agent
 sleep 3
 sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
+
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://raghad.inter-cloud-thi.de/agent/myagent \
+  -spiffeID spiffe://<DOMAIN>/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
   -joinToken $TOKEN > /tmp/spire-agent.log 2>&1 &
 sleep 30
 
-# Verify agent picked up the entry — look for "Creating X509-SVID" for game-server-raghad
 sudo tail -20 /tmp/spire-agent.log
 
-# Fetch certs
-mkdir -p ~/certs
-rm -f ~/certs/*
+mkdir -p ~/certs && rm -f ~/certs/*
 SPIFFE_ENDPOINT_SOCKET=/tmp/spire-agent/public/api.sock \
   ~/spire-1.13.3/bin/spire-agent api fetch x509 -write ~/certs/
 
-# Verify the fetch succeeded — you must see these 4 files:
 ls ~/certs/
-# Expected: svid.0.pem  svid.0.key  bundle.0.pem  federated_bundle.0.0.pem
-#
-# If you see "no identity issued" or files are missing:
-#   1. Check entry exists: sudo ./bin/spire-server entry show
-#   2. Entry must have SPIFFE ID game-server-raghad (not agent/myagent)
-#   3. Entry selector must be unix:uid:$(id -u)
-#   4. Restart agent again with a new token (repeat above)
+# Now you should see: svid.0.pem  svid.0.key  bundle.0.pem  federated_bundle.0.0.pem
 
-# IMPORTANT: Combine both CAs into one bundle file
-cat ~/certs/bundle.0.pem ~/certs/federated_bundle.0.0.pem > ~/certs/svid_bundle.pem
+# Combine ALL CAs into one bundle
+cat ~/certs/bundle.0.pem ~/certs/federated_bundle.*.pem > ~/certs/svid_bundle.pem
 mv ~/certs/svid.0.pem ~/certs/svid.pem
 mv ~/certs/svid.0.key ~/certs/svid_key.pem
 
-# Verify 2 CAs in combined bundle
+# Must show 2+ CAs (your own + each federated peer)
 grep -c "BEGIN CERTIFICATE" ~/certs/svid_bundle.pem
-# Must output: 2
 ```
 
-## 9. Run the Game
+## Restart Game & Play Cross-Domain
+
+Restart the game (it loads certs once at startup):
 
 ```bash
-docker pull ghcr.io/npaulat99/rock-paper-scissors:latest
-
-docker run -it --rm \
-  --network host \
-  -v ~/certs:/app/certs:ro \
-  -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://raghad.inter-cloud-thi.de/game-server-raghad \
-  -e RPS_PUBLIC_URL=https://4.185.211.9:9002 \
-  -e RPS_MTLS=1 \
-  ghcr.io/npaulat99/rock-paper-scissors:latest
+./rps-game \
+  --bind 0.0.0.0:9002 \
+  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
+  --public-url https://<IP>:9002 \
+  --mtls --cert-dir ~/certs \
+  --sign-moves
 ```
 
-### Challenge Noah
+Now challenge the federated peer:
 
+```text
+rps> challenge https://<PEER_IP>:9002 spiffe://<PEER_DOMAIN>/game-server-<PEER_NAME>
+Round 1 — choose (r)ock, (p)aper, (s)cissors: r
 ```
-rps> challenge https://4.185.66.130:9002 spiffe://noah.inter-cloud-thi.de/game-server-noah
+
+**At this point show:**
+- ✅ **Federated reconfiguration** — bundle imported, entry updated, new certs fetched (7 pts)
+- ✅ **Cross-domain authentication** — peer SPIFFE ID validated across trust domains (5 pts)
+- ✅ **Move signing** — signed move shown in game output (4 pts bonus)
+
+```text
+rps> scores
 ```
 
 ---
 
-# ACME / Let's Encrypt Public Scoreboard (Bonus)
+# Bonus: Move Signing (4 pts)
 
-The game supports a **second HTTPS endpoint** for the scoreboard using **Let's Encrypt (WebPKI)** certificates, separate from the SPIFFE mTLS game port.
+The `--sign-moves` flag enables cryptographic signing of each move during the reveal phase.
+The game auto-detects the available signing method:
 
-This demonstrates two distinct trust models running simultaneously:
-- **Port 9002**: SPIFFE mTLS — client certificates required, peer identity validated via SPIFFE URI SANs
-- **Port 443**: WebPKI / ACME — standard server-only TLS, publicly accessible scoreboard
+| Priority | Method | Tool | How it works |
+|----------|--------|------|-------------|
+| 1 | **Sigstore keyless** | `cosign` | OIDC identity → Fulcio certificate → Rekor transparency log |
+| 2 | **SSH key** | `ssh-keygen` | Signs with `~/.ssh/id_ed25519` (no browser needed) |
+| 3 | Unsigned | — | Fallback if neither tool is available |
 
-## Obtain Let's Encrypt Certificate
-
-On the Azure VM (requires DNS zone access — see ACME lab):
+### Binary
 
 ```bash
-# Install certbot
-sudo apt install -y certbot
-
-# Use standalone mode (stop any service on port 80 first)
-sudo certbot certonly --standalone \
-  -d noah.inter-cloud-thi.de \
-  --agree-tos --no-eff-email \
-  -m noah@student.th-ingolstadt.de
-
-# Certs are in /etc/letsencrypt/live/noah.inter-cloud-thi.de/
-sudo ls /etc/letsencrypt/live/noah.inter-cloud-thi.de/
-# fullchain.pem  privkey.pem
+./rps-game --bind 0.0.0.0:9002 --mtls --cert-dir ~/certs \
+  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
+  --public-url https://<IP>:9002 \
+  --sign-moves
 ```
 
-**Alternative — DNS-01 challenge (if port 80 is blocked):**
+### Docker
+
 ```bash
-# Using Azure DNS plugin
-sudo apt install -y python3-certbot-dns-azure
-sudo certbot certonly --dns-azure \
-  --dns-azure-config /etc/letsencrypt/azure.ini \
-  -d noah.inter-cloud-thi.de \
+docker run -it --rm --network host \
+  -v ~/certs:/app/certs:ro \
+  -e RPS_SIGN_MOVES=1 \
+  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
+  -e RPS_PUBLIC_URL=https://<IP>:9002 \
+  -e RPS_MTLS=1 \
+  ghcr.io/npaulat99/rock-paper-scissors:latest
+```
+
+### How it Works
+
+1. When you reveal your move, the client signs the payload (`rps-v1|<match_id>|<round>|<move>|<salt>`)
+2. The signature + method are included in the reveal HTTP request
+3. The peer's server verifies the signature and shows the result:
+   - `sigstore ✅ verified` — verified via Rekor transparency log
+   - `ssh (signature received)` — SSH signature present
+   - `unsigned` — no signature attached
+
+---
+
+# Bonus: ACME / Let's Encrypt Scoreboard (3 pts)
+
+A **second HTTPS endpoint** using Let's Encrypt (WebPKI) certificates serves the scoreboard publicly. This demonstrates two distinct trust models running simultaneously:
+
+- **Port 9002**: SPIFFE mTLS — client certificates required
+- **Port 443**: WebPKI / ACME — standard server-only TLS, publicly accessible
+
+## Obtain Certificate
+
+```bash
+sudo apt install -y certbot
+
+# Standalone mode (stop anything on port 80 first)
+sudo certbot certonly --standalone \
+  -d <DOMAIN> \
   --agree-tos --no-eff-email \
-  -m noah@student.th-ingolstadt.de
+  -m <EMAIL>
+
+# Copy to user-readable location
+mkdir -p ~/acme-certs
+sudo cp /etc/letsencrypt/live/<DOMAIN>/fullchain.pem ~/acme-certs/
+sudo cp /etc/letsencrypt/live/<DOMAIN>/privkey.pem ~/acme-certs/
+sudo chown $USER:$USER ~/acme-certs/*.pem
 ```
 
 ## Run with ACME Scoreboard
 
-### Prerequisites
-
-1. **Azure NSG**: Open inbound TCP **80** (certbot challenge) and **443** (HTTPS scoreboard).
-2. **DNS**: An A-record for `noah.inter-cloud-thi.de` pointing to `4.185.66.130`.
-3. **Stop anything on port 80** before running certbot (`sudo fuser -k 80/tcp`).
-
-### Copy certs to user-readable location
-
-```bash
-mkdir -p ~/acme-certs
-sudo cp /etc/letsencrypt/live/noah.inter-cloud-thi.de/fullchain.pem ~/acme-certs/
-sudo cp /etc/letsencrypt/live/noah.inter-cloud-thi.de/privkey.pem ~/acme-certs/
-sudo chown $USER:$USER ~/acme-certs/*.pem
-```
-
-### Option A: Binary (downloaded release)
-
-Port 443 requires elevated privileges. Use `sudo`:
+### Binary (needs sudo for port 443)
 
 ```bash
 sudo ./rps-game \
-  --spiffe-id spiffe://noah.inter-cloud-thi.de/game-server-noah \
+  --spiffe-id spiffe://<DOMAIN>/game-server-<NAME> \
   --mtls --cert-dir ~/certs \
-  --public-url https://4.185.66.130:9002 \
+  --public-url https://<IP>:9002 \
   --acme-cert ~/acme-certs/fullchain.pem \
   --acme-key ~/acme-certs/privkey.pem \
-  --acme-bind 0.0.0.0:443
+  --acme-bind 0.0.0.0:443 \
+  --sign-moves
 ```
 
-### Option B: Docker container
+### Docker
 
 ```bash
-docker run -it --rm \
-  --network host \
+docker run -it --rm --network host \
   -v ~/certs:/app/certs:ro \
   -v ~/acme-certs:/app/acme-certs:ro \
   -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
+  -e RPS_SPIFFE_ID=spiffe://<DOMAIN>/game-server-<NAME> \
+  -e RPS_PUBLIC_URL=https://<IP>:9002 \
   -e RPS_MTLS=1 \
   -e RPS_ACME_CERT=/app/acme-certs/fullchain.pem \
   -e RPS_ACME_KEY=/app/acme-certs/privkey.pem \
   -e RPS_ACME_BIND=0.0.0.0:443 \
+  -e RPS_SIGN_MOVES=1 \
   ghcr.io/npaulat99/rock-paper-scissors:latest
 ```
 
-The scoreboard is then publicly accessible at:
-```
-https://noah.inter-cloud-thi.de/v1/rps/scores
-```
+Public scoreboard URL: `https://<DOMAIN>/v1/rps/scores`
 
 ### ACME Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `curl: (7) Connection refused` on port 443 | ACME scoreboard never started | Did you pass `--acme-cert` and `--acme-key`? Without them the scoreboard is skipped. |
-| Scoreboard starts but not reachable externally | Azure NSG blocks port 443 | Add inbound TCP 443 rule in Azure Portal. |
-| `Permission denied` binding port 443 | Privileged port (<1024) | Use `sudo` or try `--acme-bind 0.0.0.0:8444` (then URL becomes `https://noah.inter-cloud-thi.de:8444/v1/rps/scores`). |
-| certbot fails  | Port 80 occupied or NSG closed | `sudo fuser -k 80/tcp` and add inbound TCP 80 to NSG. |
-| Browser shows "Not Secure" | Used Let's Encrypt staging | Re-run certbot **without** `--staging` flag. |
+| `Connection refused` on port 443 | ACME not started | Pass `--acme-cert` and `--acme-key` flags |
+| Not reachable externally | Azure NSG | Add inbound TCP 443 rule |
+| `Permission denied` on port 443 | Privileged port | Use `sudo` or `--acme-bind 0.0.0.0:8444` |
+| certbot fails | Port 80 in use or NSG closed | `sudo fuser -k 80/tcp` + open TCP 80 in NSG |
+
+### Prerequisites
+
+- **Azure NSG**: Inbound TCP **80** (certbot) and **443** (scoreboard)
+- **DNS**: A-record for `<DOMAIN>` pointing to `<IP>`
 
 ---
 
@@ -926,7 +616,8 @@ https://noah.inter-cloud-thi.de/v1/rps/scores
 
 ## "No identity issued" when fetching certs
 
-The SPIRE agent hasn't synced the workload entry. Fix:
+The agent hasn't synced the workload entry yet. Restart with a new token:
+
 ```bash
 cd ~/spire-1.13.3
 sudo pkill -f spire-agent
@@ -934,7 +625,7 @@ sleep 3
 sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://YOUR_DOMAIN/agent/myagent \
+  -spiffeID spiffe://<DOMAIN>/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -945,7 +636,6 @@ sudo tail -20 /tmp/spire-agent.log
 
 ## "AlreadyExists" when creating entries
 
-Delete the old entry first:
 ```bash
 sudo ./bin/spire-server entry show   # Note the Entry ID
 sudo ./bin/spire-server entry delete -entryID <THE_ID>
@@ -954,64 +644,42 @@ sudo ./bin/spire-server entry delete -entryID <THE_ID>
 
 ## Timeout connecting to peer
 
-1. Check the peer's server is running: `sudo ss -tlnp | grep 9002`
-2. Test TCP connectivity: `nc -zv -w 5 <PEER_IP> 9002`
-3. If blocked: open port 9002 TCP inbound in **Azure NSG** (Portal → VM → Networking)
-4. Check local firewall: `sudo ufw allow 9002/tcp`
+1. Check peer's server: `sudo ss -tlnp | grep 9002`
+2. Test TCP: `nc -zv -w 5 <PEER_IP> 9002`
+3. Open port 9002 TCP in **Azure NSG**
+4. Local firewall: `sudo ufw allow 9002/tcp`
 
-## SSL/TLS errors — "TLSV1_ALERT_UNKNOWN_CA"
+## SSL/TLS — "TLSV1_ALERT_UNKNOWN_CA"
 
-This means the peer's certificate was signed by a CA that isn't in your `svid_bundle.pem`. 
-**Root cause:** SPIRE server was restarted with a clean data directory → new CA key generated → old bundles no longer valid.
+The peer's cert was signed by a CA not in your `svid_bundle.pem`.
+**Root cause:** SPIRE server was restarted → new CA key → old bundles invalid.
 
-**Fix (both players must do this):**
+**Fix (both players):**
 
-### 1. Verify the CA mismatch
+### 1. Re-exchange bundles with current CAs
 
 ```bash
-# Check YOUR current CA fingerprint
-openssl x509 -in ~/certs/bundle.0.pem -noout -fingerprint -sha256
-
-# Ask the peer to check THEIR CA fingerprint
-# If they don't match what you exchanged earlier → re-exchange needed
-```
-
-### 2. Re-exchange bundles with CURRENT CAs
-
-**Noah exports fresh bundle:**
-```bash
+# Export your fresh bundle
 cd ~/spire-1.13.3
-sudo ./bin/spire-server bundle show -format spiffe > /tmp/noah.bundle
-cat /tmp/noah.bundle  # send to Raghad
-```
+sudo ./bin/spire-server bundle show -format spiffe > /tmp/my.bundle
+cat /tmp/my.bundle  # send to peer
 
-**Raghad imports Noah's fresh bundle:**
-```bash
-cd ~/spire-1.13.3
-cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set -format spiffe -id spiffe://noah.inter-cloud-thi.de
-<PASTE NOAH'S FRESH BUNDLE HERE>
+# Import peer's fresh bundle
+cat <<'BUNDLE_EOF' | sudo ./bin/spire-server bundle set \
+  -format spiffe -id spiffe://<PEER_DOMAIN>
+<PASTE FRESH BUNDLE HERE>
 BUNDLE_EOF
 ```
 
-**Raghad exports her fresh bundle → Noah imports** (same steps, swapped).
-
-### 3. Verify bundle list on BOTH VMs
-
-```bash
-sudo ./bin/spire-server bundle list
-# Must show BOTH trust domains with current timestamps
-```
-
-### 4. Re-fetch certs on BOTH VMs
+### 2. Re-fetch certs on both VMs
 
 ```bash
 cd ~/spire-1.13.3
-sudo pkill -f spire-agent
-sleep 3
+sudo pkill -f spire-agent; sleep 3
 sudo rm -rf /tmp/spire-agent/data/*
 sudo rm -f /tmp/spire-agent/public/api.sock
 TOKEN=$(sudo ./bin/spire-server token generate \
-  -spiffeID spiffe://noah.inter-cloud-thi.de/agent/myagent \
+  -spiffeID spiffe://<DOMAIN>/agent/myagent \
   | grep Token | awk '{print $2}')
 sudo nohup ./bin/spire-agent run \
   -config /opt/spire/agent/agent.conf \
@@ -1022,63 +690,19 @@ mkdir -p ~/certs && rm -f ~/certs/*
 SPIFFE_ENDPOINT_SOCKET=/tmp/spire-agent/public/api.sock \
   ~/spire-1.13.3/bin/spire-agent api fetch x509 -write ~/certs/
 
-# Combine bundles
 cat ~/certs/bundle.0.pem ~/certs/federated_bundle.*.pem > ~/certs/svid_bundle.pem
 mv ~/certs/svid.0.pem ~/certs/svid.pem
 mv ~/certs/svid.0.key ~/certs/svid_key.pem
-
-# CRITICAL: Verify 2 CAs in the combined bundle
-grep -c "BEGIN CERTIFICATE" ~/certs/svid_bundle.pem  # Must output: 2 (or more if federating with multiple peers)
+grep -c "BEGIN CERTIFICATE" ~/certs/svid_bundle.pem  # Must be 2+
 ```
 
-### 5. RESTART the game on BOTH VMs
+### 3. Restart the game on both VMs
 
-**CRITICAL:** The game loads certs once at startup. If you re-fetch while it's running, **you must restart**:
-
-```bash
-# Stop the running container
-docker stop $(docker ps -q --filter ancestor=ghcr.io/npaulat99/rock-paper-scissors:latest)
-
-# Or if using binary, Ctrl+C to stop, then re-run
-
-# Start fresh with NEW certs
-docker run -it --rm \
-  --network host \
-  -v ~/certs:/app/certs:ro \
-  -e RPS_BIND=0.0.0.0:9002 \
-  -e RPS_SPIFFE_ID=spiffe://noah.inter-cloud-thi.de/game-server-noah \
-  -e RPS_PUBLIC_URL=https://4.185.66.130:9002 \
-  -e RPS_MTLS=1 \
-  ghcr.io/npaulat99/rock-paper-scissors:latest
-```
-
-### 6. Verify cert validity before playing
-
-```bash
-# Check your SVID expiration
-openssl x509 -in ~/certs/svid.pem -noout -dates
-
-# Check bundle has 2 CAs
-openssl crl2pkcs7 -nocrl -certfile ~/certs/svid_bundle.pem | \
-  openssl pkcs7 -print_certs -noout
-# Should show Subject lines for BOTH noah and raghad CAs
-```
-
-Now try challenging again.
+The game loads certs at startup — you **must restart** after re-fetching.
 
 ## Expired SVID (certificates valid < 1 hour)
 
-SVIDs expire after 1 hour by default. Re-fetch from **Step 4** above (no bundle re-exchange needed unless CA rotated).
-
-## Checking registered entries
-
-```bash
-sudo ./bin/spire-server entry show
-# Verify:
-# - SPIFFE ID matches what you pass to --spiffe-id
-# - FederatesWith lists the peer's trust domain
-# - Selector matches: unix:uid:<your-uid>
-```
+SVIDs expire after ~1 hour. Re-fetch certs (step 7) — no bundle re-exchange needed unless CA rotated.
 
 ## Delete old scoreboard entries
 
@@ -1097,14 +721,17 @@ rock-paper-scissors/
 ├── attestations/            # SLSA provenance, SBOM, vulnerability reports
 ├── scripts/
 │   ├── download-and-verify-binary.sh
-│   └── container/
-│       └── entrypoint.sh    # Docker entrypoint
+│   ├── container/
+│   │   └── entrypoint.sh    # Docker entrypoint
+│   └── demo/
+│       ├── common.sh        # Shared helpers, auto-generates ~/spire.conf
+│       └── setup-federation-auto.sh  # One-command federation setup
 ├── src/
 │   ├── app/
 │   │   ├── cli.py           # Interactive CLI (serve + challenge in one process)
 │   │   ├── commit_reveal.py # SHA256 commitment scheme
 │   │   ├── http_api.py      # HTTP server with mTLS
-│   │   ├── move_signing.py  # Sigstore/SSH move signing
+│   │   ├── move_signing.py  # Sigstore / SSH move signing & verification
 │   │   ├── protocol.py      # Game rules
 │   │   ├── rps_client.py    # HTTP client for challenges
 │   │   ├── scoreboard.py    # Score tracking per SPIFFE ID
