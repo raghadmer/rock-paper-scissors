@@ -5,10 +5,3 @@
 #
 # Review cadence: weekly
 # Owner: supply-chain pipeline
-#
-# Added: 2026-01-25
-#
-# NOTE: Remove these entries as soon as upstream publishes fixed packages.
-
-# glibc: Integer overflow in memalign leads to heap corruption
-CVE-2026-0861
